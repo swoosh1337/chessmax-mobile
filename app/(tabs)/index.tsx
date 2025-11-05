@@ -1,98 +1,290 @@
-import { Image } from 'expo-image';
-import { Platform, StyleSheet } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { router } from 'expo-router';
+import { chessApi } from '@/src/api/chessApi';
+import { colors } from '@/src/theme/colors';
+import FilterBar from '@/src/components/FilterBar';
+import CategorySection from '@/src/components/CategorySection';
+import { groupOpenings } from '@/src/utils/openingGrouping';
+import { groupByCategory } from '@/src/utils/openingCategories';
 
-import { HelloWave } from '@/components/hello-wave';
-import ParallaxScrollView from '@/components/parallax-scroll-view';
-import { ThemedText } from '@/components/themed-text';
-import { ThemedView } from '@/components/themed-view';
-import { Link } from 'expo-router';
+const FAVORITES_KEY = '@chessmax_favorites';
 
 export default function HomeScreen() {
-  return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <Image
-          source={require('@/assets/images/partial-react-logo.png')}
-          style={styles.reactLogo}
-        />
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Welcome!</ThemedText>
-        <HelloWave />
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 1: Try it</ThemedText>
-        <ThemedText>
-          Edit <ThemedText type="defaultSemiBold">app/(tabs)/index.tsx</ThemedText> to see changes.
-          Press{' '}
-          <ThemedText type="defaultSemiBold">
-            {Platform.select({
-              ios: 'cmd + d',
-              android: 'cmd + m',
-              web: 'F12',
-            })}
-          </ThemedText>{' '}
-          to open developer tools.
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <Link href="/modal">
-          <Link.Trigger>
-            <ThemedText type="subtitle">Step 2: Explore</ThemedText>
-          </Link.Trigger>
-          <Link.Preview />
-          <Link.Menu>
-            <Link.MenuAction title="Action" icon="cube" onPress={() => alert('Action pressed')} />
-            <Link.MenuAction
-              title="Share"
-              icon="square.and.arrow.up"
-              onPress={() => alert('Share pressed')}
-            />
-            <Link.Menu title="More" icon="ellipsis">
-              <Link.MenuAction
-                title="Delete"
-                icon="trash"
-                destructive
-                onPress={() => alert('Delete pressed')}
-              />
-            </Link.Menu>
-          </Link.Menu>
-        </Link>
+  const [data, setData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [colorFilter, setColorFilter] = useState('all');
+  const [favorites, setFavorites] = useState(new Set<string>());
+  const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
-        <ThemedText>
-          {`Tap the Explore tab to learn more about what's included in this starter app.`}
-        </ThemedText>
-      </ThemedView>
-      <ThemedView style={styles.stepContainer}>
-        <ThemedText type="subtitle">Step 3: Get a fresh start</ThemedText>
-        <ThemedText>
-          {`When you're ready, run `}
-          <ThemedText type="defaultSemiBold">npm run reset-project</ThemedText> to get a fresh{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> directory. This will move the current{' '}
-          <ThemedText type="defaultSemiBold">app</ThemedText> to{' '}
-          <ThemedText type="defaultSemiBold">app-example</ThemedText>.
-        </ThemedText>
-      </ThemedView>
-    </ParallaxScrollView>
+  // Load openings data
+  useEffect(() => {
+    let mounted = true;
+    const load = async () => {
+      try {
+        const openings = await chessApi.getOpenings();
+        if (!mounted) return;
+        const grouped = groupOpenings(Array.isArray(openings) ? openings : []);
+        setData(grouped);
+      } catch (e: any) {
+        setError(e?.message || 'Failed to load openings');
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+    return () => { mounted = false; };
+  }, []);
+
+  // Load favorites from storage
+  useEffect(() => {
+    const loadFavorites = async () => {
+      try {
+        const stored = await AsyncStorage.getItem(FAVORITES_KEY);
+        if (stored) {
+          setFavorites(new Set(JSON.parse(stored)));
+        }
+      } catch (error) {
+        console.warn('Failed to load favorites:', error);
+      }
+    };
+    loadFavorites();
+  }, []);
+
+  // Toggle favorite
+  const toggleFavorite = async (opening: any) => {
+    const openingId = opening.id || opening.name;
+    const newFavorites = new Set(favorites);
+
+    if (newFavorites.has(openingId)) {
+      newFavorites.delete(openingId);
+    } else {
+      newFavorites.add(openingId);
+    }
+
+    setFavorites(newFavorites);
+
+    try {
+      await AsyncStorage.setItem(FAVORITES_KEY, JSON.stringify([...newFavorites]));
+    } catch (error) {
+      console.warn('Failed to save favorites:', error);
+    }
+  };
+
+  // Apply filters
+  let filteredData = data;
+
+  if (searchTerm.trim()) {
+    filteredData = filteredData.filter(o =>
+      o?.name?.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }
+
+  if (colorFilter !== 'all') {
+    filteredData = filteredData.filter(opening => {
+      if (colorFilter === 'white') {
+        return Object.keys(opening.whitelevels || {}).length > 0;
+      } else if (colorFilter === 'black') {
+        return Object.keys(opening.blacklevels || {}).length > 0;
+      }
+      return true;
+    });
+  }
+
+  if (showFavoritesOnly) {
+    filteredData = filteredData.filter(opening => {
+      const openingId = opening.id || opening.name;
+      return favorites.has(openingId);
+    });
+  }
+
+  const categorizedOpenings = groupByCategory(filteredData);
+
+  // Handle opening press - navigate to training screen
+  const handleOpeningPress = (opening: any, level: number, color: string) => {
+    const colorLevels = color === 'white' ? opening.whitelevels : opening.blacklevels;
+    const levelData = colorLevels?.[level];
+
+    if (!levelData) {
+      console.warn(`❌ No level data found for ${opening.name} level ${level} color ${color}`);
+      return;
+    }
+
+    let trainingData = { ...levelData };
+    if (!trainingData.pgn && trainingData.variations?.length > 0) {
+      trainingData.pgn = trainingData.variations[0].pgn;
+    }
+
+    if (!trainingData.pgn) {
+      console.error('❌ No PGN available for training!');
+      return;
+    }
+
+    // Navigate to training screen with opening parameter
+    router.push({
+      pathname: '/training',
+      params: {
+        openingData: JSON.stringify({
+          ...trainingData,
+          level,
+          color: color === 'white' ? 'w' : 'b'
+        })
+      }
+    });
+  };
+
+  if (loading) {
+    return (
+      <View style={styles.centerContent}>
+        <ActivityIndicator size="large" color={colors.primary} />
+      </View>
+    );
+  }
+
+  if (error) {
+    return (
+      <View style={styles.centerContent}>
+        <Text style={styles.errorText}>{error}</Text>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      {/* Top Bar */}
+      <View style={styles.topBar}>
+        <View style={styles.logoContainer}>
+          <Text style={styles.logoIcon}>♟</Text>
+          <Text style={styles.logoText}>ChessMaxx</Text>
+        </View>
+        <TouchableOpacity style={styles.menuButton}>
+          <View style={styles.hamburger}>
+            <View style={styles.hamburgerLine} />
+            <View style={styles.hamburgerLine} />
+            <View style={styles.hamburgerLine} />
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Title */}
+      <View style={styles.titleContainer}>
+        <Text style={styles.mainTitle}>Master Chess Openings</Text>
+      </View>
+
+      {/* Search Bar */}
+      <View style={styles.searchContainer}>
+        <TextInput
+          style={styles.searchInput}
+          placeholder="Search openings..."
+          placeholderTextColor={colors.textSubtle}
+          value={searchTerm}
+          onChangeText={setSearchTerm}
+        />
+      </View>
+
+      {/* Filter Bar */}
+      <FilterBar
+        selectedColorFilter={colorFilter}
+        onColorFilterChange={setColorFilter}
+        showFavoritesOnly={showFavoritesOnly}
+        onToggleFavoritesOnly={() => setShowFavoritesOnly(!showFavoritesOnly)}
+        favoritesCount={favorites.size}
+      />
+
+      {/* Openings List */}
+      <ScrollView style={styles.scrollView}>
+        {Object.keys(categorizedOpenings).map((category) => (
+          <CategorySection
+            key={category}
+            categoryName={category}
+            openings={categorizedOpenings[category]}
+            onOpeningPress={handleOpeningPress}
+            onToggleFavorite={toggleFavorite}
+            favorites={favorites}
+          />
+        ))}
+      </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  titleContainer: {
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  centerContent: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: colors.background,
+  },
+  topBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 70,
+    paddingBottom: 16,
   },
-  stepContainer: {
-    gap: 8,
-    marginBottom: 8,
+  logoContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  reactLogo: {
-    height: 178,
-    width: 290,
-    bottom: 0,
-    left: 0,
-    position: 'absolute',
+  logoIcon: {
+    fontSize: 28,
+    marginRight: 8,
+  },
+  logoText: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: colors.primary,
+  },
+  menuButton: {
+    padding: 8,
+  },
+  hamburger: {
+    width: 24,
+    height: 18,
+    justifyContent: 'space-between',
+  },
+  hamburgerLine: {
+    width: 24,
+    height: 3,
+    backgroundColor: colors.foreground,
+    borderRadius: 2,
+  },
+  titleContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
+  mainTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: colors.foreground,
+  },
+  searchContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 12,
+  },
+  searchInput: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: colors.foreground,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  errorText: {
+    color: colors.destructive,
+    fontSize: 16,
   },
 });

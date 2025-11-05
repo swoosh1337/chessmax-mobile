@@ -1,0 +1,650 @@
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import TrainingControls from '../components/TrainingControls';
+import CompletionModal from '../components/CompletionModal';
+import GraphicalBoard from '../components/GraphicalBoard';
+import { ChessEngine } from '../logic/chessEngine';
+import { parsePGN } from '../utils/pgnParser';
+import { chessApi } from '../api/chessApi';
+import { play as playSound, playMoveSound, playIllegalMoveSound, playCompletionSound } from '../utils/soundPlayer';
+import * as H from '../utils/haptics';
+import { useAuth } from '../context/AuthContext';
+import { colors } from '../theme/colors';
+
+export default function TrainingScreen({ route, navigation }) {
+  const { opening } = route.params || {};
+  const { user } = useAuth();
+
+  // Debug: Log opening data on mount
+  useEffect(() => {
+    console.log('=== TRAINING SCREEN RECEIVED ===');
+    console.log('Opening name:', opening?.name);
+    console.log('Opening pgn:', opening?.pgn?.substring(0, 50) + '...');
+    console.log('Opening level:', opening?.level);
+    console.log('Opening color:', opening?.color, '→', opening?.color === 'b' ? 'BLACK' : 'WHITE');
+    console.log('Opening variations:', opening?.variations?.length);
+    console.log('Initial orientation set to:', opening?.color === 'b' ? 'black' : 'white');
+    if (!opening?.pgn) {
+      console.error('❌ CRITICAL: No PGN received in TrainingScreen!');
+      console.log('Full opening object:', opening);
+    }
+    console.log('=== END TRAINING SCREEN DEBUG ===');
+  }, [opening]);
+
+  const [engine] = useState(() => new ChessEngine());
+  // Set orientation based on opening color: 'w' → 'white', 'b' → 'black'
+  const [orientation, setOrientation] = useState(opening?.color === 'b' ? 'black' : 'white');
+  const [selected, setSelected] = useState(null);
+  const [legalTargets, setLegalTargets] = useState([]);
+  const [errors, setErrors] = useState(0);
+  const trainingCompleteRef = useRef(false);
+  const [tick, setTick] = useState(0);
+  const [lastMove, setLastMove] = useState({ from: null, to: null });
+  const [captureSquare, setCaptureSquare] = useState(null);
+  const captureTimeout = useRef(null);
+  const [hintSource, setHintSource] = useState(null);
+  const [hintTarget, setHintTarget] = useState(null);
+  const hintTimeout = useRef(null);
+  const [wrongMoveSquare, setWrongMoveSquare] = useState(null);
+  const wrongMoveTimeout = useRef(null);
+  const [checkSquare, setCheckSquare] = useState(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [variationPickerOpen, setVariationPickerOpen] = useState(false);
+  const [currentMode, setCurrentMode] = useState('series');
+  const [currentVariationIndex, setCurrentVariationIndex] = useState(0);
+  const [variationStatuses, setVariationStatuses] = useState([]); // 'pending' | 'success' | 'error'
+  const [completionOpen, setCompletionOpen] = useState(false);
+  const [completionSuccess, setCompletionSuccess] = useState(true);
+
+  const sequence = useMemo(() => {
+    const parsed = parsePGN(opening?.pgn || '');
+    console.log('Parsed PGN sequence:', {
+      white: parsed.white,
+      black: parsed.black,
+      totalMoves: (parsed.white?.length || 0) + (parsed.black?.length || 0)
+    });
+    return parsed;
+  }, [opening]);
+  const board = engine.board;
+
+  const playerColor = orientation === 'white' ? 'w' : 'b';
+
+  // Calculate total expected moves (like web app)
+  const totalExpectedMoves = useMemo(() => {
+    return (sequence.white?.length || 0) + (sequence.black?.length || 0);
+  }, [sequence]);
+
+  const getExpectedMove = () => {
+    // Match web app logic: use game.turn and game.history().length
+    const currentTurn = engine.turn; // Use getter, not method call
+    const totalMoves = engine.history().length;
+    const moveIndex = Math.floor(totalMoves / 2);
+
+    // If it's white's turn, expect white move at moveIndex
+    if (currentTurn === 'w') {
+      return sequence.white[moveIndex];
+    } else {
+      // If it's black's turn, expect black move at moveIndex
+      return sequence.black[moveIndex];
+    }
+  };
+
+  const getOpponentResponse = () => {
+    // After player move, check what opponent should play
+    const currentTurn = engine.turn; // Use getter, not method call (this is AFTER player moved)
+    const totalMoves = engine.history().length;
+    const moveIndex = Math.floor((totalMoves - 1) / 2); // Index of move pair just completed
+
+    // If it's now Black's turn, White just moved - get Black's response
+    if (currentTurn === 'b') {
+      return sequence.black[moveIndex];
+    }
+    // If it's now White's turn, Black just moved - get White's response
+    else if (currentTurn === 'w') {
+      return sequence.white[moveIndex + 1];
+    }
+    return null;
+  };
+
+  const initPositionForOrientation = () => {
+    console.log('🎮 Initializing position for orientation:', orientation);
+    console.log('   Player color:', playerColor);
+    console.log('   First white move:', sequence.white[0]);
+
+    engine.reset();
+    // If training as black, play the first white move to hand over turn
+    if (playerColor === 'b' && sequence.white[0]) {
+      console.log('   ⚫ Playing as BLACK - making first white move automatically');
+      try {
+        const firstMove = engine.move(sequence.white[0]);
+        console.log('   ✅ First white move played:', firstMove?.san);
+      } catch (err) {
+        console.error('   ❌ engine.move failed when applying first white move:', sequence.white[0], err);
+      }
+    } else {
+      console.log('   ⚪ Playing as WHITE - starting from initial position');
+    }
+  };
+
+  const reset = () => {
+    initPositionForOrientation();
+    setSelected(null);
+    setLegalTargets([]);
+    setErrors(0);
+    trainingCompleteRef.current = false;
+    setTick((t) => t + 1);
+    setLastMove({ from: null, to: null });
+    setHintSource(null);
+    setHintTarget(null);
+    setWrongMoveSquare(null);
+    setCheckSquare(null);
+  };
+
+  const submitAttempt = async (success) => {
+    if (!opening?.id) return; // only submit when we have ids
+    try {
+      const userId = user?.google_id || user?.sub;
+      if (!userId) return;
+      const pgnId = opening?.pgn_id || opening?.pgnId;
+      if (!pgnId) return;
+      await chessApi.submitAttempt(userId, opening.id, pgnId, success ? 1 : 0);
+    } catch (e) {
+      // non-blocking
+    }
+  };
+
+  const attemptMove = (from, to) => {
+    // Prevent same-square moves
+    if (from === to) return { ok: false };
+
+    const move = engine.move({ from, to, promotion: 'q' });
+    if (!move) return { ok: false };
+    setLastMove({ from: move.from, to: move.to });
+    if (move.captured) {
+      // temporary capture highlight
+      setCaptureSquare(move.to);
+      if (captureTimeout.current) clearTimeout(captureTimeout.current);
+      captureTimeout.current = setTimeout(() => setCaptureSquare(null), 400);
+      H.capture();
+    } else {
+      setCaptureSquare(null);
+      H.ok();
+    }
+    // Centralized move sound (handles capture/move + optional check)
+    playMoveSound(move);
+    // Update check highlight after player's move
+    refreshCheckHighlight();
+    return { ok: true, move };
+  };
+
+  const findKingSquare = (color) => {
+    const brd = engine.board;
+    const FILES = ['a','b','c','d','e','f','g','h'];
+    for (let r = 0; r < 8; r++) {
+      for (let f = 0; f < 8; f++) {
+        const p = brd[r]?.[f];
+        if (p && p.type === 'k' && p.color === color) {
+          return orientation === 'white' ? `${FILES[f]}${8 - r}` : `${FILES[7 - f]}${r + 1}`;
+        }
+      }
+    }
+    return null;
+  };
+
+  const refreshCheckHighlight = () => {
+    try {
+      if (engine.chess?.inCheck && typeof engine.chess.inCheck === 'function') {
+        if (engine.chess.inCheck()) {
+          const sideInCheck = engine.turn; // side to move is in check
+          setCheckSquare(findKingSquare(sideInCheck));
+          return;
+        }
+      }
+    } catch {}
+    setCheckSquare(null);
+  };
+
+  const validateMove = (move) => {
+    // Get expected move BEFORE the move was made (we've already made it in attemptMove)
+    const currentTurn = engine.turn; // Use getter - this is AFTER the move
+    const totalMoves = engine.history().length; // This includes the move we just made
+    const moveIndex = Math.floor((totalMoves - 1) / 2); // Index for the move pair that was just completed
+
+    // Determine which move this should be based on the color that just moved
+    let expectedMove;
+    if (move.color === 'w') {
+      // White just moved
+      expectedMove = sequence.white[moveIndex];
+    } else {
+      // Black just moved
+      expectedMove = sequence.black[moveIndex];
+    }
+
+    // Check if move matches expected move
+    if (move.san !== expectedMove) {
+      setErrors((e) => e + 1);
+      const wrongSquare = move.to;
+      engine.undo();
+
+      // Show wrong move highlight
+      setWrongMoveSquare(wrongSquare);
+      if (wrongMoveTimeout.current) clearTimeout(wrongMoveTimeout.current);
+      wrongMoveTimeout.current = setTimeout(() => setWrongMoveSquare(null), 600);
+
+      // Show hint for expected move (like web app)
+      const prev = engine.previewSan(expectedMove);
+      if (prev?.from && prev?.to) {
+        setHintSource(prev.from);
+        setHintTarget(prev.to);
+        if (hintTimeout.current) clearTimeout(hintTimeout.current);
+        hintTimeout.current = setTimeout(() => {
+          setHintSource(null);
+          setHintTarget(null);
+        }, 1600);
+      }
+
+      // Immediate feedback for incorrect variation move
+      // Align with web: use the 'illegal' sound for wrong variation moves
+      playIllegalMoveSound();
+      H.error();
+      return;
+    }
+
+    // Check if variation is complete
+    if (totalMoves >= totalExpectedMoves) {
+      trainingCompleteRef.current = true;
+      const success = errors === 0;
+      submitAttempt(success);
+      playCompletionSound(success);
+      setCompletionSuccess(success);
+      setCompletionOpen(true);
+      // Mark status for current variation
+      setVariationStatuses((prev) => {
+        const next = [...(prev || [])];
+        if (next[currentVariationIndex] != null) next[currentVariationIndex] = success ? 'success' : 'error';
+        return next;
+      });
+      return;
+    }
+
+    // Get opponent's response
+    const opponentMove = getOpponentResponse();
+    if (opponentMove) {
+      // Delay opponent move by 600ms to match web app behavior
+      setTimeout(() => {
+        const opp = engine.move(opponentMove);
+        if (opp) {
+          setLastMove({ from: opp.from, to: opp.to });
+          if (opp.captured) {
+            setCaptureSquare(opp.to);
+            if (captureTimeout.current) clearTimeout(captureTimeout.current);
+            captureTimeout.current = setTimeout(() => setCaptureSquare(null), 400);
+          }
+          // Centralized opponent move sound
+          playMoveSound(opp);
+          // Update check highlight after opponent move
+          refreshCheckHighlight();
+
+          // Force re-render to update board
+          setTick((t) => t + 1);
+        }
+      }, 600);
+    }
+  };
+
+  const onDropMove = (from, to) => {
+    if (trainingCompleteRef.current) return;
+    const res = attemptMove(from, to);
+    if (!res.ok) {
+      // flash illegal target
+      setWrongMoveSquare(to);
+      if (wrongMoveTimeout.current) clearTimeout(wrongMoveTimeout.current);
+      wrongMoveTimeout.current = setTimeout(() => setWrongMoveSquare(null), 450);
+      playIllegalMoveSound();
+      return;
+    }
+    validateMove(res.move);
+  };
+
+  const onSquarePress = (sq) => {
+    if (trainingCompleteRef.current) return;
+
+    // If clicking the already selected square, deselect it
+    if (selected === sq) {
+      setSelected(null);
+      setLegalTargets([]);
+      return;
+    }
+
+    // Selecting a square
+    if (!selected) {
+      const moves = engine.legalMoves(sq);
+      if (moves && moves.length) {
+        setSelected(sq);
+        setLegalTargets(moves.map((m) => m.to));
+      } else {
+        setSelected(null);
+        setLegalTargets([]);
+        // Tapping a square with no legal moves -> illegal feedback + red flash
+        setWrongMoveSquare(sq);
+        if (wrongMoveTimeout.current) clearTimeout(wrongMoveTimeout.current);
+        wrongMoveTimeout.current = setTimeout(() => setWrongMoveSquare(null), 450);
+        playIllegalMoveSound();
+      }
+      return;
+    }
+
+    // Attempt move from selected -> sq
+    const res = attemptMove(selected, sq);
+    if (!res.ok) {
+      setSelected(null);
+      setLegalTargets([]);
+      playIllegalMoveSound();
+      return;
+    }
+    setSelected(null);
+    setLegalTargets([]);
+    validateMove(res.move);
+  };
+
+  const flip = () => setOrientation((o) => (o === 'white' ? 'black' : 'white'));
+
+  const showHint = () => {
+    const san = getExpectedMove();
+    if (!san) {
+      console.warn('No expected move found');
+      return;
+    }
+    const prev = engine.previewSan(san);
+    if (!prev?.from || !prev?.to) {
+      console.warn('Could not show hint for move:', san);
+      return;
+    }
+    setHintSource(prev.from);
+    setHintTarget(prev.to);
+    if (hintTimeout.current) clearTimeout(hintTimeout.current);
+    hintTimeout.current = setTimeout(() => {
+      setHintSource(null);
+      setHintTarget(null);
+    }, 1600);
+  };
+
+  useEffect(() => {
+    reset();
+  }, [orientation, opening]);
+
+  return (
+    <SafeAreaView style={styles.container} edges={['bottom']}>
+      <View style={styles.content}>
+        {/* Title above board */}
+        <Text style={styles.title}>{opening?.name || 'Training'}</Text>
+
+        {/* Chessboard with rounded corners and gold border */}
+        <View style={styles.boardContainer}>
+          <GraphicalBoard
+            board={board}
+            selected={selected}
+            legalTargets={legalTargets}
+            onSquarePress={onSquarePress}
+            onDropMove={onDropMove}
+            orientation={orientation}
+            lastMove={lastMove}
+            captureSquare={captureSquare}
+            hintSource={hintSource}
+            hintTarget={hintTarget}
+            wrongMoveSquare={wrongMoveSquare}
+            checkSquare={checkSquare}
+          />
+        </View>
+
+        {/* Controls Panel */}
+        <View style={styles.controlsPanel}>
+          <TrainingControls
+            onHint={showHint}
+            onSeriesMode={() => setCurrentMode('series')}
+            onRandomMode={() => setCurrentMode('random')}
+            currentMode={currentMode}
+            variationLabel={opening?.variationName || opening?.name || 'Variation 1'}
+            progress={{ filled: Math.min(engine.history().length, totalExpectedMoves), total: totalExpectedMoves }}
+            progressStatus={trainingCompleteRef.current ? (errors === 0 ? 'success' : 'error') : 'neutral'}
+            variationStatuses={variationStatuses}
+            onPickVariation={() => setVariationPickerOpen(true)}
+            hasMoves={engine.history().length > (playerColor === 'b' ? 1 : 0)}
+          />
+        </View>
+      </View>
+
+      {/* Completion Modal */}
+      <CompletionModal
+        visible={completionOpen}
+        success={completionSuccess}
+        variationName={opening?.variationName || opening?.name || 'Variation'}
+        onRetry={() => {
+          setCompletionOpen(false);
+          trainingCompleteRef.current = false;
+          setErrors(0);
+          reset();
+        }}
+        onNext={() => {
+          const variations = opening?.variations || [];
+          if (!variations.length) {
+            // No variations; just restart
+            setCompletionOpen(false);
+            trainingCompleteRef.current = false;
+            setErrors(0);
+            reset();
+            return;
+          }
+          if (currentMode === 'series') {
+            const nextIndex = (currentVariationIndex + 1) % variations.length;
+            setCurrentVariationIndex(nextIndex);
+            setCompletionOpen(false);
+            trainingCompleteRef.current = false;
+            setErrors(0);
+            navigation.push('Training', { opening: { ...opening, ...variations[nextIndex] } });
+            return;
+          }
+          if (currentMode === 'random') {
+            const randomIndex = Math.floor(Math.random() * variations.length);
+            setCurrentVariationIndex(randomIndex);
+            setCompletionOpen(false);
+            trainingCompleteRef.current = false;
+            setErrors(0);
+            navigation.push('Training', { opening: { ...opening, ...variations[randomIndex] } });
+            return;
+          }
+          // Fallback: restart
+          setCompletionOpen(false);
+          trainingCompleteRef.current = false;
+          setErrors(0);
+          reset();
+        }}
+        onClose={() => {
+          setCompletionOpen(false);
+        }}
+        nextEnabled={(Array.isArray(opening?.variations) && opening.variations.length > 0)}
+      />
+
+      {/* Moves Modal */}
+      <Modal visible={menuOpen} transparent animationType="fade" onRequestClose={() => setMenuOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Moves</Text>
+            <ScrollView style={styles.modalScroll}>
+              <Text style={styles.modalText}>{(opening?.pgn || '').trim()}</Text>
+            </ScrollView>
+            <TouchableOpacity onPress={() => setMenuOpen(false)} style={styles.modalButton}>
+              <Text style={styles.modalButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Variation Picker Modal */}
+      <Modal visible={variationPickerOpen} transparent animationType="fade" onRequestClose={() => setVariationPickerOpen(false)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Variations</Text>
+            <ScrollView style={styles.modalScroll}>
+              {(Array.isArray(opening?.variations) ? opening.variations : [{ name: 'Variation 1', pgn: opening?.pgn }]).map((v, idx) => (
+                <TouchableOpacity
+                  key={idx}
+                  onPress={() => {
+                    setVariationPickerOpen(false);
+                    navigation.push('Training', { opening: { ...opening, ...v } });
+                  }}
+                  style={styles.variationItem}
+                >
+                  <Text style={styles.variationText}>{v.name || `Variation ${idx + 1}`}</Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity onPress={() => setVariationPickerOpen(false)} style={styles.modalButton}>
+              <Text style={styles.modalButtonText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </SafeAreaView>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  content: {
+    flex: 1,
+    padding: 20,
+    justifyContent: 'center',
+  },
+  title: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.primary,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  boardContainer: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  controlsPanel: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 16,
+  },
+  actionButton: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  actionButtonText: {
+    color: colors.foreground,
+    fontSize: 15,
+    fontWeight: '600',
+  },
+  statsCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 16,
+    gap: 8,
+  },
+  statsText: {
+    color: colors.textSubtle,
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalContent: {
+    width: '86%',
+    maxHeight: '70%',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 16,
+    padding: 20,
+  },
+  modalTitle: {
+    color: colors.foreground,
+    fontWeight: '700',
+    fontSize: 18,
+    marginBottom: 12,
+  },
+  modalScroll: {
+    maxHeight: 300,
+  },
+  modalText: {
+    color: colors.textSubtle,
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  modalButton: {
+    alignSelf: 'flex-end',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: colors.primary,
+    borderRadius: 10,
+    marginTop: 16,
+  },
+  modalButtonText: {
+    color: colors.primaryForeground,
+    fontWeight: '600',
+  },
+  variationItem: {
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  variationText: {
+    color: colors.foreground,
+    fontSize: 15,
+  },
+});
+  // Keep orientation in sync with opening changes
+  useEffect(() => {
+    const newOrientation = opening?.color === 'b' ? 'black' : 'white';
+    setOrientation(newOrientation);
+  }, [opening?.color]);
+
+  // Initialize or resize variation statuses when list changes
+  useEffect(() => {
+    const count = Array.isArray(opening?.variations) ? opening.variations.length : 0;
+    if (count > 0) {
+      setVariationStatuses((prev) => {
+        if (!prev || prev.length !== count) return Array(count).fill('pending');
+        return prev;
+      });
+    } else {
+      setVariationStatuses([]);
+    }
+  }, [opening?.variations]);
+
+  // When opening param includes a specific variation, try to sync the index
+  useEffect(() => {
+    const vars = Array.isArray(opening?.variations) ? opening.variations : [];
+    if (!vars.length) return;
+    const idx = vars.findIndex((v) => v?.pgn === opening?.pgn && (v?.name === opening?.variationName || !opening?.variationName));
+    if (idx >= 0) setCurrentVariationIndex(idx);
+  }, [opening?.pgn, opening?.variationName, opening?.variations]);
