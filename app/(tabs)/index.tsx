@@ -26,6 +26,14 @@ export default function HomeScreen() {
     let mounted = true;
     const load = async () => {
       try {
+        // Redirect to auth first, then onboarding
+        const authed = await AsyncStorage.getItem('@chessmax_auth_done');
+        if (!authed) {
+          router.push('/auth');
+        } else {
+          const seen = await AsyncStorage.getItem('@chessmax_onboarding_seen');
+          if (!seen) router.push('/onboarding');
+        }
         const openings = await chessApi.getOpenings();
         if (!mounted) return;
         const grouped = groupOpenings(Array.isArray(openings) ? openings : []);
@@ -161,7 +169,13 @@ export default function HomeScreen() {
           <Text style={styles.logoIcon}>♟</Text>
           <Text style={styles.logoText}>ChessMaxx</Text>
         </View>
-        <View style={{ width: 36 }} />
+        {__DEV__ ? (
+          <TouchableOpacity onPress={resetOnboarding} style={styles.devButton}>
+            <Text style={styles.devText}>DEV</Text>
+          </TouchableOpacity>
+        ) : (
+          <View style={{ width: 36 }} />
+        )}
       </View>
 
 
@@ -251,6 +265,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.foreground,
     borderRadius: 2,
   },
+  devButton: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  devText: {
+    color: colors.textSubtle,
+    fontWeight: '800',
+    fontSize: 12,
+  },
   titleContainer: {
     paddingHorizontal: 16,
     marginBottom: 16,
@@ -282,3 +309,9 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 });
+  const resetOnboarding = async () => {
+    try {
+      await AsyncStorage.removeItem('@chessmax_onboarding_seen');
+      router.push('/onboarding');
+    } catch {}
+  };
