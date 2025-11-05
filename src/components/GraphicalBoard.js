@@ -82,7 +82,19 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
             const strokeWidth = 3;
             return (
               <React.Fragment key={`overlay-${r}-${f}`}>
-                {isLast && <Rect key={`lm-${r}-${f}`} x={x} y={y} width={square} height={square} fill={'url(#last)'} />}
+                {isLast && (
+                  <Rect
+                    key={`lm-${r}-${f}`}
+                    x={x + strokeWidth / 2}
+                    y={y + strokeWidth / 2}
+                    width={square - strokeWidth}
+                    height={square - strokeWidth}
+                    fill="none"
+                    stroke="#fbbf24"
+                    strokeWidth={strokeWidth}
+                    opacity={0.8}
+                  />
+                )}
                 {isSelected && <Rect key={`sel-${r}-${f}`} x={x} y={y} width={square} height={square} fill={'url(#sel)'} />}
                 {captureSquare === sq && (
                   <Rect key={`cap-${r}-${f}`} x={x} y={y} width={square} height={square} fill={'rgba(220,20,60,0.25)'} />

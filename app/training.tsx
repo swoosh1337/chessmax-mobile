@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ScrollView, StyleSheet, Text, TouchableOpacity, View, Modal } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Modal, ScrollView } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TrainingControls from '@/src/components/TrainingControls';
@@ -14,13 +14,26 @@ import { colors } from '@/src/theme/colors';
 export default function TrainingScreen() {
   // Get opening data from Expo Router params
   const params = useLocalSearchParams();
-  const opening = params.openingData ? JSON.parse(params.openingData as string) : null;
+  const initialOpening = params.openingData ? JSON.parse(params.openingData as string) : null;
+
+  // Variation management state
+  const [currentOpening, setCurrentOpening] = useState(initialOpening);
+  const [currentMode, setCurrentMode] = useState<'series' | 'random'>('series');
+  const [currentVariationIndex, setCurrentVariationIndex] = useState(0);
+  const [variationStatuses, setVariationStatuses] = useState<Array<'pending' | 'success' | 'error'>>([]);
+  const [variationPickerOpen, setVariationPickerOpen] = useState(false);
+
+  // Use currentOpening instead of params
+  const opening = currentOpening;
+
+  // Variation statuses are initialized in a guarded effect later to avoid unnecessary resets
 
   // Debug: Log opening data on mount
   useEffect(() => {
     console.log('=== TRAINING SCREEN RECEIVED ===');
     console.log('Opening name:', opening?.name);
     console.log('Opening color:', opening?.color, '→', opening?.color === 'b' ? 'BLACK' : 'WHITE');
+    console.log('Variations:', opening?.variations?.length);
     console.log('Initial orientation set to:', opening?.color === 'b' ? 'black' : 'white');
     if (!opening?.pgn) {
       console.error('❌ CRITICAL: No PGN received in TrainingScreen!');
@@ -121,6 +134,49 @@ export default function TrainingScreen() {
     setCheckSquare(null);
   };
 
+  const switchToVariation = (index: number) => {
+    const variations = opening?.variations || [];
+    if (index < 0 || index >= variations.length) return;
+
+    const newVariation = variations[index];
+    setCurrentVariationIndex(index);
+    setCurrentOpening({ ...opening, ...newVariation });
+    setErrors(0);
+    trainingCompleteRef.current = false;
+
+    // Reset will be called by useEffect when opening changes
+  };
+
+  const handleNextVariation = () => {
+    const variations = opening?.variations || [];
+    if (!variations.length) {
+      // No variations; just restart
+      setCompletionOpen(false);
+      reset();
+      return;
+    }
+
+    if (currentMode === 'series') {
+      // Go to next variation in sequence
+      const nextIndex = (currentVariationIndex + 1) % variations.length;
+      switchToVariation(nextIndex);
+      setCompletionOpen(false);
+    } else if (currentMode === 'random') {
+      // Pick random variation
+      const randomIndex = Math.floor(Math.random() * variations.length);
+      switchToVariation(randomIndex);
+      setCompletionOpen(false);
+    }
+  };
+
+  const handleSeriesMode = () => {
+    setCurrentMode('series');
+  };
+
+  const handleRandomMode = () => {
+    setCurrentMode('random');
+  };
+
   const applyMove = (move: any) => {
     if (!move || !move.from || !move.to) return { ok: false };
     setLastMove({ from: move.from, to: move.to });
@@ -163,37 +219,37 @@ export default function TrainingScreen() {
   };
 
   const validateMove = (move: any) => {
-    const expectedSan = getExpectedMove();
+    // Compute expected SAN based on the color that just moved
+    const totalMoves = engine.history().length; // includes this move
+    const moveIndex = Math.floor((totalMoves - 1) / 2);
+    const expectedSan = move.color === 'w' ? sequence.white[moveIndex] : sequence.black[moveIndex];
 
     console.log('✅ validateMove DEBUG:');
     console.log('  - Player played:', move.san);
     console.log('  - Expected:', expectedSan);
     console.log('  - Match?', move.san === expectedSan);
+    console.log('  - Total moves:', engine.history().length);
+    console.log('  - Total expected:', totalExpectedMoves);
 
-    if (!expectedSan) {
+    const finalizeCompletion = () => {
+      if (trainingCompleteRef.current) return;
       trainingCompleteRef.current = true;
       const success = errors === 0;
       playCompletionSound(success);
       setCompletionSuccess(success);
       setCompletionOpen(true);
-      return;
-    }
 
-    if (move.san === expectedSan) {
-      // Correct move
-      const oppSan = getOpponentResponse();
-      if (oppSan) {
-        setTimeout(() => {
-          try {
-            const oppMove = engine.move(oppSan);
-            applyMove(oppMove);
-            setTick((t) => t + 1);
-            refreshCheckHighlight();
-          } catch {}
-        }, 300);
+      // Mark status for current variation, if any
+      if (opening?.variations?.length > 0) {
+        setVariationStatuses((prev) => {
+          const next = [...prev];
+          next[currentVariationIndex] = success ? 'success' : 'error';
+          return next;
+        });
       }
-      setTick((t) => t + 1);
-    } else {
+    };
+
+    if (move.san !== expectedSan) {
       // Wrong move
       setErrors((e) => e + 1);
       playIllegalMoveSound();
@@ -205,6 +261,30 @@ export default function TrainingScreen() {
       // Undo the wrong move
       engine.undo();
       setTick((t) => t + 1);
+      return;
+    }
+
+    // Correct move: auto-play opponent response if available
+    const oppSan = getOpponentResponse();
+    if (oppSan) {
+      setTimeout(() => {
+        try {
+          const oppMove = engine.move(oppSan);
+          applyMove(oppMove);
+          setTick((t) => t + 1);
+          refreshCheckHighlight();
+
+          // After opponent move, check for completion
+          if (engine.history().length >= totalExpectedMoves) {
+            finalizeCompletion();
+          }
+        } catch {}
+      }, 300);
+    } else {
+      // No opponent reply expected; check completion now
+      if (engine.history().length >= totalExpectedMoves) {
+        finalizeCompletion();
+      }
     }
   };
 
@@ -324,9 +404,19 @@ export default function TrainingScreen() {
   };
 
   useEffect(() => {
-    initPositionForOrientation();
-    refreshCheckHighlight();
+    // When orientation or opening (variation) changes, fully reset board state
+    reset();
   }, [orientation, opening]);
+
+  // Guard against resetting variation statuses unnecessarily; only init if empty/mismatch
+  useEffect(() => {
+    if (opening?.variations?.length > 0) {
+      setVariationStatuses((prev) => {
+        if (prev.length === opening.variations.length) return prev;
+        return new Array(opening.variations.length).fill('pending');
+      });
+    }
+  }, [opening?.variations?.length, opening?.id]);
 
   if (!opening) {
     return (
@@ -349,76 +439,121 @@ export default function TrainingScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top']}>
-      <ScrollView contentContainerStyle={styles.scrollContent}>
-        {/* Header */}
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-            <Text style={styles.backIcon}>←</Text>
-          </TouchableOpacity>
-          <Text style={styles.title}>{opening?.name || 'Training'}</Text>
-          <View style={{ width: 40 }} />
-        </View>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <Text style={styles.backIcon}>←</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>{opening?.name || 'Training'}</Text>
+        <View style={{ width: 40 }} />
+      </View>
 
-        {/* Chess Board */}
-        <View style={styles.boardContainer}>
-          <GraphicalBoard
-            board={board}
-            orientation={orientation}
-            selected={selected}
-            legalTargets={legalTargets}
-            lastMove={lastMove}
-            captureSquare={captureSquare}
-            hintSource={hintSource}
-            hintTarget={hintTarget}
-            wrongMoveSquare={wrongMoveSquare}
-            checkSquare={checkSquare}
-            onSquarePress={onSquarePress}
-            onDropMove={onDropMove}
-            showCoords={false}
-            showCornerMarkers={true}
-          />
-        </View>
+      {/* Chess Board */}
+      <View style={styles.boardContainer}>
+        <GraphicalBoard
+          board={board}
+          orientation={orientation}
+          selected={selected}
+          legalTargets={legalTargets}
+          lastMove={lastMove}
+          captureSquare={captureSquare}
+          hintSource={hintSource}
+          hintTarget={hintTarget}
+          wrongMoveSquare={wrongMoveSquare}
+          checkSquare={checkSquare}
+          onSquarePress={onSquarePress}
+          onDropMove={onDropMove}
+          showCoords={false}
+          showCornerMarkers={true}
+        />
+      </View>
 
-        {/* Training Controls */}
-        <View style={styles.controlsContainer}>
-          <TrainingControls
-            onHint={handleHint}
-            onSeriesMode={() => {}}
-            onRandomMode={() => {}}
-            currentMode="series"
-            variationLabel={opening?.variationName || opening?.name || 'Variation 1'}
-            progress={progress}
-            progressStatus="neutral"
-            variationStatuses={[]}
-            onPickVariation={() => {}}
-            hasMoves={engine.history().length > (playerColor === 'b' ? 1 : 0)}
-          />
+      {/* Training Controls */}
+      <View style={styles.controlsContainer}>
+        <TrainingControls
+          onHint={handleHint}
+          onSeriesMode={handleSeriesMode}
+          onRandomMode={handleRandomMode}
+          currentMode={currentMode}
+          variationLabel={opening?.variationName || opening?.name || `Variation ${currentVariationIndex + 1}`}
+          progress={progress}
+          progressStatus={trainingCompleteRef.current ? (errors === 0 ? 'success' : 'error') : 'neutral'}
+          variationStatuses={variationStatuses}
+          onPickVariation={() => setVariationPickerOpen(true)}
+          hasMoves={engine.history().length > (playerColor === 'b' ? 1 : 0)}
+        />
 
-          {/* Reset Button */}
-          <TouchableOpacity style={styles.resetButton} onPress={reset}>
-            <Text style={styles.resetButtonText}>↻ Reset</Text>
-          </TouchableOpacity>
-        </View>
-      </ScrollView>
+        {/* Reset Button */}
+        <TouchableOpacity style={styles.resetButton} onPress={reset}>
+          <Text style={styles.resetButtonText}>↻ Reset</Text>
+        </TouchableOpacity>
+      </View>
 
       {/* Completion Modal */}
       <CompletionModal
         visible={completionOpen}
         success={completionSuccess}
-        title={completionSuccess ? 'Perfect!' : 'Completed with errors'}
+        title={completionSuccess ? 'Perfect!' : 'Completed with mistakes'}
         message={completionSuccess ? 'You mastered this variation!' : 'Try again for a perfect score'}
         variationName={opening?.variationName || opening?.name}
         onRetry={() => {
           setCompletionOpen(false);
           reset();
         }}
-        onNext={() => {
-          setCompletionOpen(false);
-          router.back();
-        }}
+        onNext={handleNextVariation}
         onClose={() => setCompletionOpen(false)}
-        nextEnabled={false}
+        nextEnabled={Array.isArray(opening?.variations) && opening.variations.length > 0}
       />
+
+      {/* Variation Picker Modal */}
+      <Modal
+        visible={variationPickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setVariationPickerOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Variation</Text>
+            <ScrollView style={styles.modalScroll}>
+              {(opening?.variations || []).map((variation: any, idx: number) => (
+                <TouchableOpacity
+                  key={idx}
+                  style={[
+                    styles.variationItem,
+                    currentVariationIndex === idx && styles.variationItemActive
+                  ]}
+                  onPress={() => {
+                    switchToVariation(idx);
+                    setVariationPickerOpen(false);
+                  }}
+                >
+                  <View style={styles.variationItemContent}>
+                    <Text style={[
+                      styles.variationText,
+                      currentVariationIndex === idx && styles.variationTextActive
+                    ]}>
+                      {variation.name || variation.variationName || `Variation ${idx + 1}`}
+                    </Text>
+                    {variationStatuses[idx] === 'success' && (
+                      <Text style={styles.statusBadge}>✓</Text>
+                    )}
+                    {variationStatuses[idx] === 'error' && (
+                      <Text style={[styles.statusBadge, styles.statusBadgeError]}>✗</Text>
+                    )}
+                  </View>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setVariationPickerOpen(false)}
+            >
+              <Text style={styles.modalCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -427,9 +562,6 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
-  },
-  scrollContent: {
-    paddingBottom: 24,
   },
   centerContent: {
     flex: 1,
@@ -487,6 +619,80 @@ const styles = StyleSheet.create({
   },
   backButtonText: {
     color: colors.primary,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: colors.card,
+    borderRadius: 16,
+    padding: 24,
+    width: '85%',
+    maxHeight: '70%',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.foreground,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modalScroll: {
+    maxHeight: 400,
+  },
+  variationItem: {
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  variationItemActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  variationItemContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  variationText: {
+    fontSize: 16,
+    color: colors.foreground,
+    fontWeight: '500',
+    flex: 1,
+  },
+  variationTextActive: {
+    color: colors.background,
+    fontWeight: '700',
+  },
+  statusBadge: {
+    fontSize: 18,
+    color: colors.success,
+    fontWeight: '700',
+    marginLeft: 8,
+  },
+  statusBadgeError: {
+    color: colors.destructive,
+  },
+  modalCloseButton: {
+    marginTop: 16,
+    backgroundColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  modalCloseText: {
+    color: colors.background,
     fontSize: 16,
     fontWeight: '600',
   },

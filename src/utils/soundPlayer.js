@@ -16,8 +16,8 @@ try {
   ExpoAV = null;
 }
 
-// Sounds temporarily disabled until expo-audio is properly loaded
-const ENABLE_SOUNDS = false;
+// Sounds enabled
+const ENABLE_SOUNDS = true;
 
 // Timings (match web where helpful)
 const CHECK_SOUND_DELAY = 100; // ms

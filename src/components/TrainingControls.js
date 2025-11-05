@@ -67,26 +67,57 @@ export default function TrainingControls({
         </TouchableOpacity>
       </View>
 
-      {/* Variation Progress + Selector */}
+      {/* Variation Progress + Selector - Redesigned */}
       <TouchableOpacity onPress={onPickVariation} style={styles.variationSelector}>
-        <View style={styles.variationLeft}>
-          <Text style={styles.variationText} numberOfLines={1}>{variationLabel}</Text>
-          <Text style={styles.progressText}>{progress.filled}/{progress.total} moves</Text>
-        </View>
-        <View style={styles.variationRight}>
-          <View style={styles.segmentBar}>
-            {(variationStatuses && variationStatuses.length ? variationStatuses : Array(5).fill('pending')).map((s, i) => (
-              <View
-                key={`seg-${i}`}
-                style={[styles.segment,
-                  s === 'success' && { backgroundColor: colors.success, borderColor: colors.success },
-                  s === 'error' && { backgroundColor: colors.destructive, borderColor: colors.destructive },
-                  s === 'pending' && { backgroundColor: colors.border, borderColor: colors.border }
-                ]}
-              />
-            ))}
+        <View style={styles.variationContent}>
+          {/* Top Row: Variation Name + Status Badge */}
+          <View style={styles.variationHeader}>
+            <Text style={styles.variationText} numberOfLines={1}>
+              {variationLabel}
+            </Text>
+            {progressStatus === 'success' && (
+              <View style={styles.statusBadge}>
+                <Text style={styles.statusIcon}>✓</Text>
+              </View>
+            )}
+            {progressStatus === 'error' && (
+              <View style={[styles.statusBadge, styles.statusBadgeError]}>
+                <Text style={styles.statusIconError}>✗</Text>
+              </View>
+            )}
           </View>
-          <Ionicons name="chevron-down" size={18} color={colors.textSubtle} style={{ marginLeft: 6 }} />
+
+          {/* Bottom Row: Progress + Variation Counter */}
+          <View style={styles.variationFooter}>
+            <View style={styles.progressInfo}>
+              {/* Progress Bar */}
+              <View style={styles.progressBarContainer}>
+                <View
+                  style={[
+                    styles.progressBarFill,
+                    {
+                      width: `${progress.total > 0 ? (progress.filled / progress.total) * 100 : 0}%`,
+                      backgroundColor: filledColor
+                    }
+                  ]}
+                />
+              </View>
+              {/* Progress Text */}
+              <Text style={styles.progressText}>
+                {progress.filled}/{progress.total} moves
+              </Text>
+            </View>
+
+            {/* Variation Counter + Summary */}
+            {variationStatuses.length > 0 && (
+              <View style={styles.variationSummary}>
+                <Text style={styles.variationCounter}>
+                  {variationStatuses.filter(s => s !== 'pending').length}/{variationStatuses.length}
+                </Text>
+                <Ionicons name="chevron-down" size={16} color={colors.textSubtle} />
+              </View>
+            )}
+          </View>
         </View>
       </TouchableOpacity>
     </View>
@@ -133,55 +164,78 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    padding: 16,
+    backgroundColor: colors.card,
+  },
+  variationContent: {
+    gap: 10,
+  },
+  variationHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: colors.card,
-  },
-  variationLeft: {
-    flex: 1,
-    marginRight: 12,
   },
   variationText: {
     color: colors.foreground,
-    fontSize: 15,
-    fontWeight: '600',
-    marginBottom: 2,
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
+    marginRight: 12,
+  },
+  statusBadge: {
+    backgroundColor: colors.success,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  statusBadgeError: {
+    backgroundColor: colors.destructive,
+  },
+  statusIcon: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  statusIconError: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  variationFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  progressInfo: {
+    flex: 1,
+    marginRight: 12,
+  },
+  progressBarContainer: {
+    height: 6,
+    backgroundColor: colors.border,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3,
   },
   progressText: {
     color: colors.textSubtle,
     fontSize: 12,
-    fontWeight: '500',
+    fontWeight: '600',
   },
-  variationRight: {
+  variationSummary: {
     flexDirection: 'row',
     alignItems: 'center',
-    flexShrink: 0,
+    gap: 6,
   },
-  segmentBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  segment: {
-    width: 14,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 1,
-    backgroundColor: colors.border,
-    borderColor: colors.border,
-    marginHorizontal: 2,
-  },
-  progressDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    marginHorizontal: 3,
-    backgroundColor: colors.border,
-  },
-  progressDotFilled: {
-    backgroundColor: colors.primary,
+  variationCounter: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '700',
   },
 });

@@ -1,18 +1,43 @@
-import React from 'react';
-import { Modal, View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Modal, View, Text, TouchableOpacity, StyleSheet, Platform, Animated } from 'react-native';
 import { colors } from '../theme/colors';
 
 export default function CompletionModal({ visible, success = true, title, message, variationName, onRetry, onNext, onClose, nextEnabled = true }) {
+  const overlayOpacity = useRef(new Animated.Value(0)).current;
+  const cardScale = useRef(new Animated.Value(0.95)).current;
+  const cardOpacity = useRef(new Animated.Value(0)).current;
+
+  useEffect(() => {
+    if (visible) {
+      Animated.parallel([
+        Animated.timing(overlayOpacity, { toValue: 1, duration: 180, useNativeDriver: true }),
+        Animated.spring(cardScale, { toValue: 1, useNativeDriver: true, friction: 7, tension: 100 }),
+        Animated.timing(cardOpacity, { toValue: 1, duration: 200, useNativeDriver: true })
+      ]).start();
+    } else {
+      overlayOpacity.setValue(0);
+      cardScale.setValue(0.95);
+      cardOpacity.setValue(0);
+    }
+  }, [visible]);
+
+  const headerText = title || (success ? 'Perfect!' : 'Completed');
+  const bodyText = message || (success ? 'You mastered this variation.' : 'Give it another go.');
+
   return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
-      <View style={styles.overlay}>
-        <View style={styles.card}>
+    <Modal transparent visible={visible} animationType="none" onRequestClose={onClose}>
+      <Animated.View style={[styles.overlay, { opacity: overlayOpacity }]}>
+        <Animated.View style={[styles.card, { transform: [{ scale: cardScale }], opacity: cardOpacity }]}> 
           <View style={styles.headerRow}>
-            <Text style={styles.headerText}>{title || (success ? 'Excellent Work!' : 'Variation Complete!')}</Text>
+            <View style={[styles.iconCircle, styles.iconCircleLight]}>
+              <Text style={[styles.iconText, success ? styles.iconTextSuccess : styles.iconTextError]}>
+                {success ? '✓' : '✗'}
+              </Text>
+            </View>
+            <Text style={styles.headerText}>{headerText}</Text>
           </View>
-          <Text style={styles.messageText} numberOfLines={2}>
-            {message || (success ? "You've successfully mastered this variation." : "You've completed this variation.")}
-          </Text>
+
+          <Text style={styles.messageText} numberOfLines={2}>{bodyText}</Text>
 
           {variationName ? (
             <View style={styles.variationPill}>
@@ -21,19 +46,19 @@ export default function CompletionModal({ visible, success = true, title, messag
           ) : null}
 
           <View style={styles.buttonRow}>
-            <TouchableOpacity accessibilityRole="button" onPress={onRetry} style={[styles.button, styles.retryButton]}> 
-              <Text style={[styles.buttonText, styles.retryText]}>Restart</Text>
+            <TouchableOpacity accessibilityRole="button" onPress={onRetry} style={[styles.button, styles.buttonOutline]}> 
+              <Text style={[styles.buttonText, styles.buttonTextLight]}>Restart</Text>
             </TouchableOpacity>
-            <TouchableOpacity accessibilityRole="button" onPress={onNext} disabled={!nextEnabled} style={[styles.button, styles.nextButton, !nextEnabled && styles.buttonDisabled]}> 
-              <Text style={styles.nextText}>Next</Text>
+            <TouchableOpacity accessibilityRole="button" onPress={onNext} disabled={!nextEnabled} style={[styles.button, styles.buttonSolid, !nextEnabled && styles.buttonDisabled]}> 
+              <Text style={[styles.buttonText, styles.buttonTextDark]}>Next</Text>
             </TouchableOpacity>
           </View>
 
           <TouchableOpacity onPress={onClose} style={styles.closeTapArea} accessibilityRole="button" accessibilityLabel="Close">
             <Text style={styles.closeText}>Close</Text>
           </TouchableOpacity>
-        </View>
-      </View>
+        </Animated.View>
+      </Animated.View>
     </Modal>
   );
 }
@@ -41,7 +66,7 @@ export default function CompletionModal({ visible, success = true, title, messag
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: colors.glassStrong,
+    backgroundColor: 'rgba(0,0,0,0.7)',
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: 16,
@@ -50,21 +75,34 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 420,
     backgroundColor: colors.card,
-    borderRadius: 16,
+    borderRadius: 18,
     borderWidth: 1,
-    borderColor: colors.primary,
-    paddingHorizontal: 16,
-    paddingTop: 16,
+    borderColor: '#FFFFFF22',
+    paddingHorizontal: 18,
+    paddingTop: 18,
     paddingBottom: 12,
-    shadowColor: colors.primary,
-    shadowOpacity: 0.3,
-    shadowRadius: 18,
-    shadowOffset: { width: 0, height: 6 },
+    shadowColor: '#000',
+    shadowOpacity: 0.35,
+    shadowRadius: 24,
+    shadowOffset: { width: 0, height: 10 },
     elevation: 10,
   },
-  headerRow: { alignItems: 'center', marginBottom: 8 },
+  headerRow: { alignItems: 'center', marginBottom: 10 },
+  iconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 8,
+  },
+  iconCircleLight: { backgroundColor: '#fff' },
+  iconCircleDark: { backgroundColor: '#000', borderWidth: 1, borderColor: '#ffffff' },
+  iconText: { fontSize: 24, fontWeight: '800' },
+  iconTextSuccess: { color: colors.success },
+  iconTextError: { color: colors.destructive },
   headerText: {
-    color: colors.primary,
+    color: colors.foreground,
     fontWeight: '800',
     fontSize: 18,
   },
@@ -75,24 +113,24 @@ const styles = StyleSheet.create({
   },
   variationPill: {
     alignSelf: 'center',
-    marginTop: 10,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    marginTop: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
     borderRadius: 999,
-    backgroundColor: '#00000080',
+    backgroundColor: '#fff',
     borderWidth: 1,
-    borderColor: colors.primary,
+    borderColor: '#FFFFFF',
   },
   variationText: {
-    color: colors.primary,
-    fontWeight: '700',
+    color: '#000',
+    fontWeight: '800',
     fontSize: 13,
-    maxWidth: 280,
+    maxWidth: 300,
   },
   buttonRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 16,
+    gap: 12,
+    marginTop: 18,
   },
   button: {
     flex: 1,
@@ -101,29 +139,18 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  retryButton: {
-    backgroundColor: colors.background,
+  buttonOutline: {
+    backgroundColor: 'transparent',
     borderWidth: 2,
-    borderColor: colors.primary,
+    borderColor: '#fff',
   },
-  nextButton: {
-    backgroundColor: colors.primary,
+  buttonSolid: {
+    backgroundColor: '#fff',
   },
-  buttonDisabled: {
-    opacity: 0.5,
-  },
-  buttonText: { fontWeight: '800' },
-  retryText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  nextText: {
-    color: colors.primaryForeground,
-    fontSize: 14,
-    fontWeight: '800',
-  },
+  buttonDisabled: { opacity: 0.5 },
+  buttonText: { fontWeight: '800', fontSize: 14 },
+  buttonTextLight: { color: '#fff' },
+  buttonTextDark: { color: '#000' },
   closeTapArea: { alignItems: 'center', marginTop: 10 },
   closeText: { color: colors.textSubtle, fontSize: 12 },
 });
-

@@ -19,6 +19,7 @@ export default function HomeScreen() {
   const [colorFilter, setColorFilter] = useState('all');
   const [favorites, setFavorites] = useState(new Set<string>());
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
+  
 
   // Load openings data
   useEffect(() => {
@@ -160,14 +161,9 @@ export default function HomeScreen() {
           <Text style={styles.logoIcon}>♟</Text>
           <Text style={styles.logoText}>ChessMaxx</Text>
         </View>
-        <TouchableOpacity style={styles.menuButton}>
-          <View style={styles.hamburger}>
-            <View style={styles.hamburgerLine} />
-            <View style={styles.hamburgerLine} />
-            <View style={styles.hamburgerLine} />
-          </View>
-        </TouchableOpacity>
+        <View style={{ width: 36 }} />
       </View>
+
 
       {/* Title */}
       <View style={styles.titleContainer}>
@@ -243,9 +239,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.primary,
   },
-  menuButton: {
-    padding: 8,
-  },
+  
   hamburger: {
     width: 24,
     height: 18,
