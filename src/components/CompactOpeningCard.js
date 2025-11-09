@@ -41,10 +41,10 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
 
   // Get image URL - prefer level-specific, fallback to opening default
   const imageUrl = useMemo(() => {
-    console.log(`📸 Building imageUrl for ${selectedColor} L${selectedLevel}:`);
-    console.log(`   levelData.id:`, levelData.id);
-    console.log(`   levelData.gif:`, levelData.gif);
-    console.log(`   opening.id:`, opening?.id);
+    // console.log(`📸 Building imageUrl for ${selectedColor} L${selectedLevel}:`);
+    // console.log(`   levelData.id:`, levelData.id);
+    // console.log(`   levelData.gif:`, levelData.gif);
+    // console.log(`   opening.id:`, opening?.id);
 
     const currentGif = levelData.gif || opening?.gif;
     const currentImage = levelData.image || opening?.image;
@@ -59,7 +59,7 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
       finalUrl = `${WEB_URL}/img/openings/${openingId}.gif`;
     }
 
-    console.log(`   → Final URL:`, finalUrl);
+    // console.log(`   → Final URL:`, finalUrl);
     return finalUrl;
   }, [levelData, opening, selectedColor, selectedLevel]);
 
@@ -68,10 +68,10 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
 
   // Handle color selection
   const handleColorSelect = (color) => {
-    console.log(`🎨 Color selected: ${color} for ${opening?.name}`);
-    console.log(`   whitelevels[1].gif:`, whitelevels?.[1]?.gif);
-    console.log(`   blacklevels[1].gif:`, blacklevels?.[1]?.gif);
-    console.log(`   opening.gif:`, opening?.gif);
+    // console.log(`🎨 Color selected: ${color} for ${opening?.name}`);
+    // console.log(`   whitelevels[1].gif:`, whitelevels?.[1]?.gif);
+    // console.log(`   blacklevels[1].gif:`, blacklevels?.[1]?.gif);
+    // console.log(`   opening.gif:`, opening?.gif);
     setSelectedColor(color);
     setImageKey(prev => prev + 1); // Force image reload
   };
@@ -93,8 +93,8 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
             }}
             style={styles.boardImage}
             resizeMode="cover"
-            onLoadStart={() => console.log(`🖼️ Loading image for ${opening?.name} (${selectedColor} L${selectedLevel}): ${imageUrl}`)}
-            onLoad={() => console.log(`✅ Image loaded successfully`)}
+            // onLoadStart={() => console.log(`🖼️ Loading image for ${opening?.name} (${selectedColor} L${selectedLevel}): ${imageUrl}`)}
+            // onLoad={() => console.log(`✅ Image loaded successfully`)}
             onError={(error) => console.error(`❌ Failed to load image for ${opening?.name}:`, error.nativeEvent)}
           />
         ) : (

@@ -10,8 +10,18 @@ import { parsePGN } from '@/src/utils/pgnParser';
 import { playMoveSound, playIllegalMoveSound, playCompletionSound } from '@/src/utils/soundPlayer';
 import * as H from '@/src/utils/haptics';
 import { colors } from '@/src/theme/colors';
+import { calculateXP, calculateLevel } from '@/src/utils/xp';
+import { useLeaderboard } from '@/src/context/LeaderboardContext';
+import { supabase } from '@/src/lib/supabase';
+import { useAuth } from '@/src/context/AuthContext';
+import { ratingStorage } from '@/src/utils/storage';
+import RatingModal from '@/src/components/RatingModal';
 
 export default function TrainingScreen() {
+  // Hooks
+  const { user } = useAuth();
+  const { invalidateCache, updateUserProfile } = useLeaderboard();
+
   // Get opening data from Expo Router params
   const params = useLocalSearchParams();
   const initialOpening = params.openingData ? JSON.parse(params.openingData as string) : null;
@@ -30,15 +40,15 @@ export default function TrainingScreen() {
 
   // Debug: Log opening data on mount
   useEffect(() => {
-    console.log('=== TRAINING SCREEN RECEIVED ===');
-    console.log('Opening name:', opening?.name);
-    console.log('Opening color:', opening?.color, '→', opening?.color === 'b' ? 'BLACK' : 'WHITE');
-    console.log('Variations:', opening?.variations?.length);
-    console.log('Initial orientation set to:', opening?.color === 'b' ? 'black' : 'white');
+    // console.log('=== TRAINING SCREEN RECEIVED ===');
+    // console.log('Opening name:', opening?.name);
+    // console.log('Opening color:', opening?.color, '→', opening?.color === 'b' ? 'BLACK' : 'WHITE');
+    // console.log('Variations:', opening?.variations?.length);
+    // console.log('Initial orientation set to:', opening?.color === 'b' ? 'black' : 'white');
     if (!opening?.pgn) {
       console.error('❌ CRITICAL: No PGN received in TrainingScreen!');
     }
-    console.log('=== END TRAINING SCREEN DEBUG ===');
+    // console.log('=== END TRAINING SCREEN DEBUG ===');
   }, [opening]);
 
   const [engine] = useState(() => new ChessEngine());
@@ -46,6 +56,8 @@ export default function TrainingScreen() {
   const [selected, setSelected] = useState<string | null>(null);
   const [legalTargets, setLegalTargets] = useState<string[]>([]);
   const [errors, setErrors] = useState(0);
+  const [hintsUsed, setHintsUsed] = useState(0);
+  const [startTime, setStartTime] = useState<number>(Date.now());
   const trainingCompleteRef = useRef(false);
   const [tick, setTick] = useState(0);
   const [lastMove, setLastMove] = useState<{ from: string | null; to: string | null }>({ from: null, to: null });
@@ -59,14 +71,23 @@ export default function TrainingScreen() {
   const [checkSquare, setCheckSquare] = useState<string | null>(null);
   const [completionOpen, setCompletionOpen] = useState(false);
   const [completionSuccess, setCompletionSuccess] = useState(true);
+  const [ratingModalOpen, setRatingModalOpen] = useState(false);
+  const [earnedXP, setEarnedXP] = useState(0);
+  const completionProcessingRef = useRef(false);
 
   const sequence = useMemo(() => {
+    console.log('🔄 [SEQUENCE] useMemo recalculating sequence for:', opening?.name);
+    console.log('🔄 [SEQUENCE] PGN:', opening?.pgn);
     const parsed = parsePGN(opening?.pgn || '');
+    console.log('🔄 [SEQUENCE] Parsed result:', parsed);
     return parsed;
   }, [opening]);
 
   // Board must be recalculated on every tick change to show updates
-  const board = useMemo(() => engine.board, [tick]);
+  const board = useMemo(() => {
+    console.log('🔄 [BOARD] useMemo recalculating board, tick:', tick);
+    return engine.board;
+  }, [tick]);
   const playerColor = orientation === 'white' ? 'w' : 'b';
 
   const totalExpectedMoves = useMemo(() => {
@@ -85,13 +106,13 @@ export default function TrainingScreen() {
 
     const expectedSan = playerColor === 'w' ? sequence.white[moveIndex] : sequence.black[moveIndex];
 
-    console.log('🎯 getExpectedMove DEBUG:');
-    console.log('  - Player color:', playerColor);
-    console.log('  - Total moves:', totalMoves);
-    console.log('  - Move index:', moveIndex);
-    console.log('  - Expected SAN:', expectedSan);
-    console.log('  - sequence.white:', sequence.white);
-    console.log('  - sequence.black:', sequence.black);
+    // console.log('🎯 getExpectedMove DEBUG:');
+    // console.log('  - Player color:', playerColor);
+    // console.log('  - Total moves:', totalMoves);
+    // console.log('  - Move index:', moveIndex);
+    // console.log('  - Expected SAN:', expectedSan);
+    // console.log('  - sequence.white:', sequence.white);
+    // console.log('  - sequence.black:', sequence.black);
 
     return expectedSan;
   };
@@ -110,21 +131,30 @@ export default function TrainingScreen() {
   };
 
   const initPositionForOrientation = () => {
+    console.log('🔄 [INIT] initPositionForOrientation called');
+    console.log('🔄 [INIT] playerColor:', playerColor);
+    console.log('🔄 [INIT] sequence:', sequence);
     engine.reset();
     if (playerColor === 'b' && sequence.white[0]) {
       try {
+        console.log('🔄 [INIT] Applying first white move:', sequence.white[0]);
         engine.move(sequence.white[0]);
+        console.log('🔄 [INIT] First white move applied successfully');
       } catch (err) {
         console.error('Failed to apply first white move:', err);
       }
     }
+    console.log('🔄 [INIT] initPositionForOrientation completed');
   };
 
   const reset = () => {
+    console.log('🔄 [RESET] reset called');
     initPositionForOrientation();
     setSelected(null);
     setLegalTargets([]);
     setErrors(0);
+    setHintsUsed(0);
+    setStartTime(Date.now());
     trainingCompleteRef.current = false;
     setTick((t) => t + 1);
     setLastMove({ from: null, to: null });
@@ -132,41 +162,72 @@ export default function TrainingScreen() {
     setHintTarget(null);
     setWrongMoveSquare(null);
     setCheckSquare(null);
+    setEarnedXP(0);
+    console.log('🔄 [RESET] reset completed');
   };
 
   const switchToVariation = (index: number) => {
+    console.log('🔄 [SWITCH] switchToVariation called with index:', index);
     const variations = opening?.variations || [];
-    if (index < 0 || index >= variations.length) return;
+    console.log('🔄 [SWITCH] variations:', variations);
+
+    if (index < 0 || index >= variations.length) {
+      console.log('🔄 [SWITCH] Invalid index, returning');
+      return;
+    }
 
     const newVariation = variations[index];
+    console.log('🔄 [SWITCH] newVariation:', newVariation);
+
     setCurrentVariationIndex(index);
-    setCurrentOpening({ ...opening, ...newVariation });
+    const mergedOpening = { ...opening, ...newVariation };
+    console.log('🔄 [SWITCH] mergedOpening:', mergedOpening);
+    setCurrentOpening(mergedOpening);
     setErrors(0);
+    setHintsUsed(0);
+    setStartTime(Date.now());
     trainingCompleteRef.current = false;
 
+    console.log('🔄 [SWITCH] switchToVariation completed, waiting for useEffect');
     // Reset will be called by useEffect when opening changes
   };
 
   const handleNextVariation = () => {
-    const variations = opening?.variations || [];
-    if (!variations.length) {
-      // No variations; just restart
-      setCompletionOpen(false);
-      reset();
-      return;
-    }
+    console.log('🔄 [NEXT] handleNextVariation called');
+    console.log('🔄 [NEXT] completionProcessing:', completionProcessingRef.current);
 
-    if (currentMode === 'series') {
-      // Go to next variation in sequence
-      const nextIndex = (currentVariationIndex + 1) % variations.length;
+    // Wait for completion processing to finish
+    const proceedWithNext = () => {
+      if (completionProcessingRef.current) {
+        console.log('🔄 [NEXT] Still processing, waiting...');
+        setTimeout(proceedWithNext, 100);
+        return;
+      }
+
+      console.log('🔄 [NEXT] Processing complete, proceeding');
+
+      // Close modal
+      setCompletionOpen(false);
+
+      const variations = opening?.variations || [];
+      console.log('🔄 [NEXT] variations.length:', variations.length);
+
+      if (!variations.length) {
+        console.log('🔄 [NEXT] No variations, calling reset');
+        reset();
+        return;
+      }
+
+      const nextIndex = currentMode === 'series'
+        ? (currentVariationIndex + 1) % variations.length
+        : Math.floor(Math.random() * variations.length);
+
+      console.log('🔄 [NEXT] Next index:', nextIndex);
+
       switchToVariation(nextIndex);
-      setCompletionOpen(false);
-    } else if (currentMode === 'random') {
-      // Pick random variation
-      const randomIndex = Math.floor(Math.random() * variations.length);
-      switchToVariation(randomIndex);
-      setCompletionOpen(false);
-    }
+    };
+
+    proceedWithNext();
   };
 
   const handleSeriesMode = () => {
@@ -224,16 +285,19 @@ export default function TrainingScreen() {
     const moveIndex = Math.floor((totalMoves - 1) / 2);
     const expectedSan = move.color === 'w' ? sequence.white[moveIndex] : sequence.black[moveIndex];
 
-    console.log('✅ validateMove DEBUG:');
-    console.log('  - Player played:', move.san);
-    console.log('  - Expected:', expectedSan);
-    console.log('  - Match?', move.san === expectedSan);
-    console.log('  - Total moves:', engine.history().length);
-    console.log('  - Total expected:', totalExpectedMoves);
+    // console.log('✅ validateMove DEBUG:');
+    // console.log('  - Player played:', move.san);
+    // console.log('  - Expected:', expectedSan);
+    // console.log('  - Match?', move.san === expectedSan);
+    // console.log('  - Total moves:', engine.history().length);
+    // console.log('  - Total expected:', totalExpectedMoves);
 
-    const finalizeCompletion = () => {
+    const finalizeCompletion = async () => {
       if (trainingCompleteRef.current) return;
       trainingCompleteRef.current = true;
+      completionProcessingRef.current = true;
+      console.log('🔄 [COMPLETE] Starting finalize, processing = true');
+
       const success = errors === 0;
       playCompletionSound(success);
       setCompletionSuccess(success);
@@ -247,6 +311,149 @@ export default function TrainingScreen() {
           return next;
         });
       }
+
+      // Calculate completion time in seconds
+      const completionTimeSeconds = Math.floor((Date.now() - startTime) / 1000);
+
+      // Get difficulty from opening data (default to 1 if not specified)
+      const difficulty = opening?.difficulty || 1;
+
+      // Calculate XP (for display, even if not logged in)
+      const xpResult = calculateXP({
+        difficulty,
+        errors,
+        hintsUsed,
+        completionTimeSeconds,
+      });
+
+      // console.log('[Training] XP Calculation:', xpResult);
+      // console.log('[Training] Breakdown:', xpResult.breakdown);
+
+      // Store XP for display in modal
+      setEarnedXP(xpResult.totalXP);
+
+      // Save XP to database if user is authenticated
+      if (user) {
+        try {
+
+          // Ensure user profile exists (for users created before profile system)
+          const { data: existingProfile } = await supabase
+            .from('user_profiles')
+            .select('id')
+            .eq('id', user.id)
+            .single();
+
+          if (!existingProfile) {
+            // console.log('[Training] Profile does not exist, creating...');
+            const { error: createError } = await supabase
+              .from('user_profiles')
+              .insert({
+                id: user.id,
+                username: null,
+                total_xp: 0,
+                weekly_xp: 0,
+                level: 1,
+              });
+
+            if (createError) {
+              console.error('[Training] Error creating profile:', createError);
+              // Continue anyway, maybe it was created by another process
+            }
+            // else {
+            //   console.log('[Training] Profile created successfully');
+            // }
+          }
+
+          // Get current user profile
+          const { data: profile, error: profileError } = await supabase
+            .from('user_profiles')
+            .select('total_xp, weekly_xp')
+            .eq('id', user.id)
+            .single();
+
+          if (profileError) {
+            console.error('[Training] Error fetching profile:', profileError);
+          } else {
+            // Calculate new XP values
+            const newTotalXP = (profile?.total_xp || 0) + xpResult.totalXP;
+            const newWeeklyXP = (profile?.weekly_xp || 0) + xpResult.totalXP;
+            const newLevel = calculateLevel(newTotalXP);
+
+            // Update user profile with new XP
+            const { error: updateError } = await supabase
+              .from('user_profiles')
+              .update({
+                total_xp: newTotalXP,
+                weekly_xp: newWeeklyXP,
+                level: newLevel,
+              })
+              .eq('id', user.id);
+
+            if (updateError) {
+              console.error('[Training] Error updating profile:', updateError);
+            } else {
+
+              // Save variation completion to database (after profile exists)
+              const { error: completionError } = await supabase
+                .from('variation_completions')
+                .insert({
+                  user_id: user.id,
+                  variation_id: opening?.id || opening?.name || 'unknown',
+                  difficulty,
+                  errors,
+                  hints_used: hintsUsed,
+                  completion_time_seconds: completionTimeSeconds,
+                  xp_earned: xpResult.totalXP,
+                });
+
+              if (completionError) {
+                console.error('[Training] Error saving completion:', completionError);
+                // Don't return - XP was already saved
+              }
+
+              // console.log('[Training] XP saved successfully!', {
+              //   xpEarned: xpResult.totalXP,
+              //   newTotalXP,
+              //   newWeeklyXP,
+              //   newLevel,
+              // });
+
+              // Optimistically update user profile in cache
+              updateUserProfile({
+                total_xp: newTotalXP,
+                weekly_xp: newWeeklyXP,
+                level: newLevel,
+              });
+
+              // Invalidate leaderboard cache to trigger refetch
+              invalidateCache();
+            }
+          }
+        } catch (error) {
+          console.error('[Training] Error saving XP:', error);
+        }
+      }
+
+      // Increment variations completed count and check for rating prompt
+      try {
+        const variationsCompleted = await ratingStorage.incrementVariationsCompleted();
+
+        // Check if we should show rating prompt
+        const shouldShowRating = await ratingStorage.shouldShowRatingPrompt();
+        if (shouldShowRating) {
+          // console.log('[Training] Showing rating prompt after', variationsCompleted, 'variations');
+          // Delay showing rating modal until completion modal is closed
+          setTimeout(() => {
+            setRatingModalOpen(true);
+          }, 500);
+        }
+      } catch (error) {
+        console.error('[Training] Error handling rating prompt:', error);
+      }
+
+      // Mark processing as complete
+      console.log('🔄 [COMPLETE] Finalize complete, processing = false');
+      completionProcessingRef.current = false;
     };
 
     if (move.san !== expectedSan) {
@@ -289,14 +496,14 @@ export default function TrainingScreen() {
   };
 
   const onSquarePress = (sq: string) => {
-    console.log('🔥 Square pressed:', sq);
+    // console.log('🔥 Square pressed:', sq);
     const piece = engine.getPiece(sq);
-    console.log('🔥 Piece at square:', piece);
+    // console.log('🔥 Piece at square:', piece);
 
     if (selected) {
-      console.log('🔥 Already have selection:', selected);
+      // console.log('🔥 Already have selection:', selected);
       if (selected === sq) {
-        console.log('🔥 Deselecting');
+        // console.log('🔥 Deselecting');
         setSelected(null);
         setLegalTargets([]);
         return;
@@ -305,13 +512,13 @@ export default function TrainingScreen() {
       // Try to move
       const legal = engine.getLegalMoves(selected);
       const legalSquares = legal.map((m: any) => m.to);
-      console.log('🔥 Legal targets:', legalSquares);
+      // console.log('🔥 Legal targets:', legalSquares);
 
       if (legalSquares.includes(sq)) {
-        console.log('🔥 Attempting move from', selected, 'to', sq);
+        // console.log('🔥 Attempting move from', selected, 'to', sq);
         try {
           const move = engine.move({ from: selected, to: sq });
-          console.log('🔥 Move successful:', move);
+          // console.log('🔥 Move successful:', move);
           setTick((t) => t + 1); // Update board immediately to show player's move
           const result = applyMove(move);
           if (result.ok) {
@@ -323,41 +530,41 @@ export default function TrainingScreen() {
           console.error('❌ Move failed:', err);
         }
       } else {
-        console.log('🔥 Not a legal move, checking if new piece selection');
+        // console.log('🔥 Not a legal move, checking if new piece selection');
         // Select new piece
         if (piece && piece.color === playerColor) {
-          console.log('🔥 Selecting new piece at', sq);
+          // console.log('🔥 Selecting new piece at', sq);
           setSelected(sq);
           const moves = engine.getLegalMoves(sq);
           setLegalTargets(moves.map((m: any) => m.to));
         } else {
-          console.log('🔥 Clearing selection');
+          // console.log('🔥 Clearing selection');
           setSelected(null);
           setLegalTargets([]);
         }
       }
     } else {
-      console.log('🔥 No selection yet');
+      // console.log('🔥 No selection yet');
       // First selection
       if (piece && piece.color === playerColor) {
-        console.log('🔥 First selection at', sq, 'piece:', piece);
+        // console.log('🔥 First selection at', sq, 'piece:', piece);
         setSelected(sq);
         const moves = engine.getLegalMoves(sq);
-        console.log('🔥 Legal moves:', moves.map((m: any) => m.to));
+        // console.log('🔥 Legal moves:', moves.map((m: any) => m.to));
         setLegalTargets(moves.map((m: any) => m.to));
       }
     }
   };
 
   const onDropMove = (from: string, to: string) => {
-    console.log('🔥 Drop move from', from, 'to', to);
+    // console.log('🔥 Drop move from', from, 'to', to);
     if (!from || !to) return;
 
     const legal = engine.getLegalMoves(from);
     const legalSquares = legal.map((m: any) => m.to);
 
     if (!legalSquares.includes(to)) {
-      console.log('🔥 Illegal drop');
+      // console.log('🔥 Illegal drop');
       playIllegalMoveSound();
       H.error();
       return;
@@ -365,7 +572,7 @@ export default function TrainingScreen() {
 
     try {
       const move = engine.move({ from, to });
-      console.log('🔥 Drop successful:', move);
+      // console.log('🔥 Drop successful:', move);
       setTick((t) => t + 1); // Update board immediately to show player's move
       const result = applyMove(move);
       if (result.ok) {
@@ -390,6 +597,7 @@ export default function TrainingScreen() {
       const hintMove = allMoves.find((m: any) => m.san === expectedSan);
 
       if (hintMove) {
+        setHintsUsed((h) => h + 1);
         setHintSource(hintMove.from);
         setHintTarget(hintMove.to);
         H.warning();
@@ -404,6 +612,7 @@ export default function TrainingScreen() {
   };
 
   useEffect(() => {
+    console.log('🔄 [EFFECT] useEffect triggered - orientation:', orientation, 'opening:', opening?.name);
     // When orientation or opening (variation) changes, fully reset board state
     reset();
   }, [orientation, opening]);
@@ -503,6 +712,9 @@ export default function TrainingScreen() {
         onNext={handleNextVariation}
         onClose={() => setCompletionOpen(false)}
         nextEnabled={Array.isArray(opening?.variations) && opening.variations.length > 0}
+        xpEarned={earnedXP}
+        correctCount={playerColor === 'w' ? sequence.white?.length || 0 : sequence.black?.length || 0}
+        incorrectCount={errors}
       />
 
       {/* Variation Picker Modal */}
@@ -554,6 +766,12 @@ export default function TrainingScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Rating Modal */}
+      <RatingModal
+        visible={ratingModalOpen}
+        onClose={() => setRatingModalOpen(false)}
+      />
     </SafeAreaView>
   );
 }

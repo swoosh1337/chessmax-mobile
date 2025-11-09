@@ -1,23 +1,343 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
 import { colors } from '@/src/theme/colors';
+import { useLeaderboard, UserProfile } from '@/src/context/LeaderboardContext';
+import { useAuth } from '@/src/context/AuthContext';
+import LeaderboardSkeleton from '@/src/components/LeaderboardSkeleton';
+import { formatXP, getRankSuffix } from '@/src/utils/xp';
+import { useFocusEffect } from '@react-navigation/native';
+
+type TabType = 'allTime' | 'weekly';
 
 export default function LeaderboardScreen() {
+  const { user } = useAuth();
+  const { data, loading, error, refetch, subscribeToUpdates } = useLeaderboard();
+  const [activeTab, setActiveTab] = useState<TabType>('allTime');
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Subscribe to real-time updates when screen is focused
+  useFocusEffect(
+    React.useCallback(() => {
+      // console.log('[Leaderboard] Screen focused, subscribing to updates');
+      subscribeToUpdates(true);
+
+      // Fetch data if not already loaded
+      if (!data && !loading) {
+        refetch();
+      }
+
+      return () => {
+        // console.log('[Leaderboard] Screen unfocused, unsubscribing from updates');
+        subscribeToUpdates(false);
+      };
+    }, [data, loading])
+  );
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refetch();
+    setRefreshing(false);
+  };
+
+  const renderLeaderboardEntry = ({ item, index }: { item: UserProfile; index: number }) => {
+    const isCurrentUser = user?.id === item.id;
+    const xp = activeTab === 'allTime' ? item.total_xp : item.weekly_xp;
+
+    return (
+      <View style={[styles.row, isCurrentUser && styles.rowHighlighted]}>
+        {/* Rank */}
+        <View style={styles.rankContainer}>
+          <Text style={[styles.rank, isCurrentUser && styles.textHighlighted]}>
+            {index + 1}
+          </Text>
+        </View>
+
+        {/* User Info */}
+        <View style={styles.userInfo}>
+          <Text style={[styles.username, isCurrentUser && styles.textHighlighted]} numberOfLines={1}>
+            {item.username || `Player${item.id.substring(0, 6)}`}
+            {isCurrentUser && ' (You)'}
+          </Text>
+          <Text style={[styles.xpText, isCurrentUser && styles.xpTextHighlighted]}>
+            {formatXP(xp)} XP
+          </Text>
+        </View>
+
+        {/* Level Badge */}
+        <View style={[styles.levelBadge, isCurrentUser && styles.levelBadgeHighlighted]}>
+          <Text style={[styles.levelText, isCurrentUser && styles.levelTextHighlighted]}>
+            {item.level}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  const renderCurrentUserRank = () => {
+    if (!data?.currentUser || !user) return null;
+
+    const leaderboardData = activeTab === 'allTime' ? data.allTime : data.weekly;
+    const userInTop100 = leaderboardData.some((p) => p.id === user.id);
+
+    // If user is in top 100, they're already shown in the list
+    if (userInTop100) return null;
+
+    const xp = activeTab === 'allTime' ? data.currentUser.total_xp : data.currentUser.weekly_xp;
+    const rank = data.currentUser.rank || '?';
+
+    return (
+      <View style={styles.currentUserRank}>
+        <Text style={styles.currentUserRankTitle}>Your Rank</Text>
+        <View style={[styles.row, styles.rowHighlighted]}>
+          <View style={styles.rankContainer}>
+            <Text style={styles.rank}>{getRankSuffix(typeof rank === 'number' ? rank : 0)}</Text>
+          </View>
+          <View style={styles.userInfo}>
+            <Text style={styles.username} numberOfLines={1}>
+              {data.currentUser.username || `Player${data.currentUser.id.substring(0, 6)}`} (You)
+            </Text>
+            <Text style={styles.xpText}>{formatXP(xp)} XP</Text>
+          </View>
+          <View style={[styles.levelBadge, styles.levelBadgeHighlighted]}>
+            <Text style={styles.levelText}>{data.currentUser.level}</Text>
+          </View>
+        </View>
+      </View>
+    );
+  };
+
+  const leaderboardData = data ? (activeTab === 'allTime' ? data.allTime : data.weekly) : [];
+
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.center}>
+      {/* Header */}
+      <View style={styles.header}>
         <Text style={styles.title}>Leaderboard</Text>
-        <Text style={styles.subtitle}>Coming soon</Text>
       </View>
+
+      {/* Tabs */}
+      <View style={styles.tabs}>
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'allTime' && styles.tabActive]}
+          onPress={() => setActiveTab('allTime')}
+        >
+          <Text style={[styles.tabText, activeTab === 'allTime' && styles.tabTextActive]}>
+            All-Time
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'weekly' && styles.tabActive]}
+          onPress={() => setActiveTab('weekly')}
+        >
+          <Text style={[styles.tabText, activeTab === 'weekly' && styles.tabTextActive]}>
+            This Week
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Content */}
+      {loading && !data ? (
+        <LeaderboardSkeleton count={10} />
+      ) : error ? (
+        <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Failed to load leaderboard</Text>
+          <TouchableOpacity style={styles.retryButton} onPress={refetch}>
+            <Text style={styles.retryButtonText}>Retry</Text>
+          </TouchableOpacity>
+        </View>
+      ) : leaderboardData.length === 0 ? (
+        <View style={styles.emptyContainer}>
+          <Text style={styles.emptyText}>No rankings yet</Text>
+          <Text style={styles.emptySubtext}>Complete training variations to earn XP!</Text>
+        </View>
+      ) : (
+        <FlatList
+          data={leaderboardData}
+          keyExtractor={(item) => item.id}
+          renderItem={renderLeaderboardEntry}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={colors.primary}
+              colors={[colors.primary]}
+            />
+          }
+          ListHeaderComponent={renderCurrentUserRank}
+          contentContainerStyle={styles.listContent}
+        />
+      )}
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  title: { color: colors.foreground, fontSize: 24, fontWeight: '800' },
-  subtitle: { color: colors.textSubtle, marginTop: 8 },
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  title: {
+    color: colors.foreground,
+    fontSize: 32,
+    fontWeight: '800',
+  },
+  tabs: {
+    flexDirection: 'row',
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    paddingBottom: 8,
+    gap: 12,
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  tabActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  tabText: {
+    color: colors.textSubtle,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  tabTextActive: {
+    color: colors.background,
+    fontWeight: '700',
+  },
+  listContent: {
+    paddingBottom: 20,
+  },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+  },
+  rowHighlighted: {
+    backgroundColor: colors.card,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary,
+  },
+  rankContainer: {
+    width: 50,
+    alignItems: 'center',
+  },
+  rank: {
+    color: colors.textSubtle,
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  textHighlighted: {
+    color: colors.primary,
+  },
+  userInfo: {
+    flex: 1,
+    marginLeft: 12,
+  },
+  username: {
+    color: colors.foreground,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 4,
+  },
+  xpText: {
+    color: colors.textSubtle,
+    fontSize: 14,
+  },
+  xpTextHighlighted: {
+    color: colors.primary,
+  },
+  levelBadge: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.card,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  levelBadgeHighlighted: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  levelText: {
+    color: colors.foreground,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  levelTextHighlighted: {
+    color: colors.background,
+  },
+  currentUserRank: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    backgroundColor: colors.card,
+    borderBottomWidth: 2,
+    borderBottomColor: colors.primary,
+  },
+  currentUserRankTitle: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  errorText: {
+    color: colors.destructive,
+    fontSize: 16,
+    marginBottom: 16,
+  },
+  retryButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  retryButtonText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  emptyContainer: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    color: colors.foreground,
+    fontSize: 18,
+    fontWeight: '700',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    color: colors.textSubtle,
+    fontSize: 14,
+  },
 });
 

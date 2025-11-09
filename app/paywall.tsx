@@ -1,93 +1,202 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Switch, Linking } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/src/theme/colors';
-import { signInWithApple, signInWithGoogle } from '@/src/utils/auth';
 import { router } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const PAYWALL_SEEN_KEY = '@chessmax_paywall_seen';
 
 export default function PaywallScreen() {
-  const [loading, setLoading] = useState<string | null>(null);
-
-  const handleSignIn = async (provider: 'google' | 'apple') => {
-    setLoading(provider);
+  const continueToApp = async () => {
     try {
-      const res = provider === 'google' ? await signInWithGoogle() : await signInWithApple();
-      // proceed regardless (mock)
-    } finally {
-      setLoading(null);
+      // console.log('[Paywall] User clicked continue button');
+      // console.log('[Paywall] BEFORE marking paywall as seen');
+      // Mark paywall as seen
+      await AsyncStorage.setItem(PAYWALL_SEEN_KEY, '1');
+      // console.log('[Paywall] AFTER AsyncStorage.setItem');
+
+      // Verify it was saved
+      // const check = await AsyncStorage.getItem(PAYWALL_SEEN_KEY);
+      // console.log('[Paywall] Verification - paywall value:', check);
+
+      // console.log('[Paywall] Navigating to /(tabs)');
+      router.replace('/(tabs)');
+    } catch (error) {
+      console.error('[Paywall] Error saving paywall status:', error);
+      // Navigate anyway
+      router.replace('/(tabs)');
     }
   };
 
-  const continueToApp = () => {
-    router.replace('/(tabs)');
-  };
+  const [selected, setSelected] = useState<'yearly' | 'weeklyTrial'>('weeklyTrial');
+  const [trialEnabled, setTrialEnabled] = useState(true);
+
+  useEffect(() => {
+    // console.log('[Paywall] Screen mounted');
+  }, []);
+
+  const ctaLabel = useMemo(() => {
+    if (selected === 'weeklyTrial' && trialEnabled) return 'Try for Free';
+    if (selected === 'weeklyTrial') return 'Continue';
+    return 'Continue';
+  }, [selected, trialEnabled]);
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.title}>Unlock ChessMaxx Pro</Text>
-        <Text style={styles.subtitle}>Unlimited training, all variations, and future features.</Text>
-      </View>
+      <View style={styles.sheet}>
+        {/* Illustration */}
+        <Image source={require('../assets/mascot/turtle_playing_chess.png')} style={styles.hero} />
+        
+        {/* Headline */}
+        <Text style={styles.title}>Unlimited Access</Text>
+        <View style={{ height: 4 }} />
+        {/* Bullets */}
+        <View style={styles.bullets}>
+          <Bullet icon="school-outline" text="Master all opening variations" />
+          <Bullet icon="flash-outline" text="Unlock drills, hints, and feedback" />
+          <Bullet icon="stats-chart-outline" text="Track progress, XP and streaks" />
+          <Bullet icon="trophy-outline" text="Compete on leaderboards" />
+        </View>
 
-      <View style={styles.plans}>
-        <View style={[styles.planCard, styles.planSide]}>
-          <Text style={styles.planName}>Monthly</Text>
-          <Text style={styles.planPrice}>$3.99</Text>
-          <Text style={styles.planDesc}>per month</Text>
-        </View>
-        <View style={[styles.planCard, styles.planCenter]}> 
-          <Text style={[styles.planName, styles.primaryText]}>Yearly</Text>
-          <Text style={[styles.planPrice, styles.primaryText]}>$23.99</Text>
-          <Text style={[styles.planDesc, styles.primaryText]}>≈ 50% off vs monthly</Text>
-          <View style={styles.badge}><Text style={styles.badgeText}>Best Value</Text></View>
-        </View>
-        <View style={[styles.planCard, styles.planSide]}>
-          <Text style={styles.planName}>Weekly</Text>
-          <Text style={styles.planPrice}>$0.99</Text>
-          <Text style={styles.planDesc}>3‑day free trial</Text>
-        </View>
-      </View>
+        {/* Plan selectors */}
+        <PlanRow
+          active={selected === 'yearly'}
+          title="Yearly Plan"
+          subtitle={<Text style={styles.planSmall}><Text style={styles.strike}>$47.88</Text> $23.99 per year</Text>}
+          badge="SAVE 50%"
+          onPress={() => setSelected('yearly')}
+        />
+        <PlanRow
+          active={selected === 'weeklyTrial'}
+          title="3‑Day Trial"
+          subtitle={<Text style={styles.planSmall}>then $0.99 per week</Text>}
+          rightLabel="FREE"
+          onPress={() => setSelected('weeklyTrial')}
+        />
 
-      <View style={styles.actions}>
-        <TouchableOpacity style={[styles.button, styles.google]} onPress={() => handleSignIn('google')} disabled={!!loading}>
-          <Text style={[styles.buttonText, styles.darkText]}>{loading==='google' ? 'Connecting…' : 'Continue with Google'}</Text>
+        {/* Trial toggle when weekly selected */}
+        {selected === 'weeklyTrial' && (
+          <View style={styles.toggleRow}>
+            <Text style={styles.toggleLabel}>Free Trial Enabled</Text>
+            <Switch
+              value={trialEnabled}
+              onValueChange={setTrialEnabled}
+              thumbColor={trialEnabled ? colors.primaryForeground : '#888'}
+              trackColor={{ false: '#333', true: colors.primary }}
+            />
+          </View>
+        )}
+
+        {/* CTA */}
+        <TouchableOpacity style={styles.primaryCta} onPress={continueToApp}>
+          <Text style={styles.primaryCtaText}>{ctaLabel}</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={[styles.button, styles.apple]} onPress={() => handleSignIn('apple')} disabled={!!loading}>
-          <Text style={[styles.buttonText, styles.appleText]}>{loading==='apple' ? 'Connecting…' : 'Continue with Apple'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.linkButton} onPress={continueToApp}>
-          <Text style={styles.linkText}>Continue without subscription</Text>
-        </TouchableOpacity>
-        <Text style={styles.legal}>Payment handled by App Store. Cancel anytime in Settings.
-        </Text>
+
+        {/* Footer links */}
+        <View style={styles.footerLinks}>
+          <TouchableOpacity onPress={() => { /* restore purchases hook */ }}>
+            <Text style={styles.footerLinkText}>Restore</Text>
+          </TouchableOpacity>
+          <Text style={styles.dot}> · </Text>
+          <TouchableOpacity onPress={() => Linking.openURL('https://example.com/terms')}>
+            <Text style={styles.footerLinkText}>Terms of Use</Text>
+          </TouchableOpacity>
+          <Text style={styles.dot}> & </Text>
+          <TouchableOpacity onPress={() => Linking.openURL('https://example.com/privacy')}>
+            <Text style={styles.footerLinkText}>Privacy Policy</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  header: { padding: 20, alignItems: 'center' },
-  title: { color: colors.foreground, fontWeight: '800', fontSize: 22, textAlign: 'center' },
-  subtitle: { color: colors.textSubtle, marginTop: 6, textAlign: 'center' },
-  plans: { flexDirection: 'row', gap: 12, paddingHorizontal: 16, marginTop: 8 },
-  planCard: { flex: 1, alignItems: 'center', paddingVertical: 18, borderRadius: 18, borderWidth: 1, position: 'relative' },
-  planSide: { backgroundColor: colors.card, borderColor: '#222', shadowColor: '#000', shadowOpacity: 0.2, shadowRadius: 10, shadowOffset: { width: 0, height: 6 } },
-  planCenter: { backgroundColor: colors.primary, borderColor: colors.primary, transform: [{ scale: 1.06 }], shadowColor: colors.primary, shadowOpacity: 0.35, shadowRadius: 16, shadowOffset: { width: 0, height: 8 } },
-  primaryText: { color: colors.primaryForeground },
-  planName: { color: colors.foreground, fontWeight: '800' },
-  planPrice: { color: colors.foreground, fontSize: 20, fontWeight: '800', marginTop: 2 },
-  planDesc: { color: colors.textSubtle, marginTop: 2 },
-  badge: { position: 'absolute', top: -10, right: 12, backgroundColor: '#10b981', borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
-  badgeText: { color: '#fff', fontWeight: '800', fontSize: 11 },
-  actions: { padding: 16, marginTop: 12 },
-  button: { height: 52, borderRadius: 999, alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
-  google: { backgroundColor: '#fff' },
-  apple: { backgroundColor: 'transparent', borderWidth: 2, borderColor: '#333' },
-  buttonText: { fontWeight: '800' },
-  darkText: { color: '#000' },
-  appleText: { color: colors.foreground },
-  linkButton: { alignItems: 'center', marginTop: 6 },
-  linkText: { color: colors.textSubtle, textDecorationLine: 'underline' },
-  legal: { color: colors.textSubtle, fontSize: 11, textAlign: 'center', marginTop: 12 },
+  container: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center', padding: 16 },
+  sheet: {
+    width: '100%', maxWidth: 460, backgroundColor: colors.card, borderRadius: 16,
+    paddingVertical: 18, paddingHorizontal: 16, borderWidth: 1, borderColor: colors.border,
+  },
+  hero: { width: 96, height: 96, alignSelf: 'center', resizeMode: 'contain' },
+  title: { color: colors.foreground, fontWeight: '800', fontSize: 24, textAlign: 'center', marginTop: 6 },
+  bullets: { marginTop: 10, marginBottom: 12, gap: 10 },
+  bulletRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  bulletText: { color: colors.foreground, fontSize: 14, flex: 1 },
+
+  // Plan rows (card-style)
+  rowCard: {
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    backgroundColor: colors.background,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rowActive: {
+    borderColor: colors.primary,
+    shadowColor: colors.primary,
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 4 },
+  },
+  planTitle: { color: colors.foreground, fontWeight: '800' },
+  planSmall: { color: colors.textSubtle },
+  badge: { backgroundColor: colors.primary, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 999, marginLeft: 8 },
+  badgeText: { color: colors.primaryForeground, fontWeight: '800', fontSize: 11 },
+  strike: { textDecorationLine: 'line-through', color: '#6b7280' },
+  radio: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.primary },
+
+  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 4 },
+  toggleLabel: { color: colors.foreground, fontWeight: '600' },
+
+  primaryCta: { marginTop: 16, backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
+  primaryCtaText: { color: colors.primaryForeground, fontWeight: '800' },
+
+  footerLinks: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 10 },
+  footerLinkText: { color: colors.textSubtle, textDecorationLine: 'underline' },
+  dot: { color: colors.textSubtle },
 });
+
+function Bullet({ icon, text }: { icon: any; text: string }) {
+  return (
+    <View style={styles.bulletRow}>
+      <Ionicons name={icon} size={18} color={colors.primary} />
+      <Text style={styles.bulletText}>{text}</Text>
+  </View>
+  );
+}
+
+function PlanRow({ active, title, subtitle, badge, rightLabel, onPress }:
+  { active: boolean; title: string; subtitle?: React.ReactNode; badge?: string; rightLabel?: string; onPress: () => void; }) {
+  return (
+    <TouchableOpacity onPress={onPress} activeOpacity={0.8} style={[styles.rowCard, active && styles.rowActive]}>
+      <View style={{ flex: 1 }}>
+        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+          <Text style={styles.planTitle}>{title}</Text>
+          {!!badge && (
+            <View style={styles.badge}><Text style={styles.badgeText}>{badge}</Text></View>
+          )}
+        </View>
+        {subtitle}
+      </View>
+      {rightLabel ? (
+        <Text style={{ color: colors.primary, fontWeight: '800', marginRight: 10 }}>{rightLabel}</Text>
+      ) : null}
+      <View style={styles.radio}>{active && <View style={styles.radioDot} />}</View>
+    </TouchableOpacity>
+  );
+}

@@ -2,7 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { Modal, View, Text, TouchableOpacity, StyleSheet, Platform, Animated } from 'react-native';
 import { colors } from '../theme/colors';
 
-export default function CompletionModal({ visible, success = true, title, message, variationName, onRetry, onNext, onClose, nextEnabled = true }) {
+export default function CompletionModal({ visible, success = true, title, message, variationName, onRetry, onNext, onClose, nextEnabled = true, xpEarned = 0, correctCount = 0, incorrectCount = 0 }) {
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.95)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
@@ -45,11 +45,37 @@ export default function CompletionModal({ visible, success = true, title, messag
             </View>
           ) : null}
 
+          {/* Stats Section */}
+          <View style={styles.statsContainer}>
+            {xpEarned > 0 && (
+              <View style={styles.statRow}>
+                <Text style={styles.statLabel}>Points Earned:</Text>
+                <Text style={styles.statValue}>+{xpEarned} XP</Text>
+              </View>
+            )}
+            <View style={styles.statRow}>
+              <Text style={styles.statLabel}>Correct:</Text>
+              <Text style={[styles.statValue, styles.statSuccess]}>{correctCount}</Text>
+            </View>
+            <View style={[styles.statRow, { marginBottom: 0 }]}>
+              <Text style={styles.statLabel}>Incorrect:</Text>
+              <Text style={[styles.statValue, styles.statError]}>{incorrectCount}</Text>
+            </View>
+          </View>
+
           <View style={styles.buttonRow}>
             <TouchableOpacity accessibilityRole="button" onPress={onRetry} style={[styles.button, styles.buttonOutline]}> 
               <Text style={[styles.buttonText, styles.buttonTextLight]}>Restart</Text>
             </TouchableOpacity>
-            <TouchableOpacity accessibilityRole="button" onPress={onNext} disabled={!nextEnabled} style={[styles.button, styles.buttonSolid, !nextEnabled && styles.buttonDisabled]}> 
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={() => {
+                console.log('🔄 [MODAL] Next button pressed');
+                onNext();
+              }}
+              disabled={!nextEnabled}
+              style={[styles.button, styles.buttonSolid, !nextEnabled && styles.buttonDisabled]}
+            >
               <Text style={[styles.buttonText, styles.buttonTextDark]}>Next</Text>
             </TouchableOpacity>
           </View>
@@ -153,4 +179,32 @@ const styles = StyleSheet.create({
   buttonTextDark: { color: '#000' },
   closeTapArea: { alignItems: 'center', marginTop: 10 },
   closeText: { color: colors.textSubtle, fontSize: 12 },
+  statsContainer: {
+    marginTop: 16,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    padding: 12,
+  },
+  statRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  statLabel: {
+    fontSize: 14,
+    color: colors.textSoft,
+    fontWeight: '600',
+  },
+  statValue: {
+    fontSize: 16,
+    color: colors.foreground,
+    fontWeight: '700',
+  },
+  statSuccess: {
+    color: colors.success,
+  },
+  statError: {
+    color: colors.destructive,
+  },
 });

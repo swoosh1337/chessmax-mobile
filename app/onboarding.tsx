@@ -1,13 +1,12 @@
 import React, { useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Image } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { colors } from '@/src/theme/colors';
 import RatingPromptModal from '@/src/components/RatingPromptModal';
+import { onboardingStorage } from '@/src/utils/storage';
 
 const { width } = Dimensions.get('window');
-const SEEN_KEY = '@chessmax_onboarding_seen';
 
 type SlideKey = 'welcome' | 'precision' | 'progress' | 'leaderboard' | 'done';
 
@@ -55,7 +54,9 @@ export default function OnboardingScreen() {
   };
 
   const skip = async () => {
-    await AsyncStorage.setItem(SEEN_KEY, '1');
+    // console.log('[Onboarding] User clicked SKIP');
+    await onboardingStorage.markOnboardingSeen();
+    // console.log('[Onboarding] Navigating to /paywall after skip');
     router.replace('/paywall');
   };
 
@@ -64,7 +65,9 @@ export default function OnboardingScreen() {
       scrollRef.current?.scrollTo({ x: (index + 1) * width, animated: true });
     } else {
       // last slide → show rating mock then go to paywall
-      await AsyncStorage.setItem(SEEN_KEY, '1');
+      // console.log('[Onboarding] User clicked GET STARTED on last slide');
+      await onboardingStorage.markOnboardingSeen();
+      // console.log('[Onboarding] Showing rating modal');
       setShowRating(true);
     }
   };
