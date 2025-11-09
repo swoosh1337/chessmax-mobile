@@ -159,6 +159,8 @@ const styles = StyleSheet.create({
 
 function renderCenter(key: SlideKey) {
   switch (key) {
+    case 'welcome':
+      return <Image source={require('../assets/images/logo_transparent.png')} style={styles.mascotHero} />;
     case 'precision':
       return (
         <View style={{ alignItems: 'center', justifyContent: 'center' }}>
@@ -193,8 +195,6 @@ function renderCenter(key: SlideKey) {
           <Text style={{ color: colors.textSubtle, marginTop: 6 }}>Top Players</Text>
         </View>
       );
-    case 'welcome':
-      return <Text style={{ fontSize: 72 }}>♟</Text>;
     case 'done':
       return <Text style={{ fontSize: 64 }}>✓</Text>;
   }

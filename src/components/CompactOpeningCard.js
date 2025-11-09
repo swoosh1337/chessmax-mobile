@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { colors } from '../theme/colors';
 import { WEB_URL } from '../config';
 
-export default function CompactOpeningCard({ opening, onPress, onToggleFavorite, isFavorite }) {
+export default function CompactOpeningCard({ opening, onPress, onToggleFavorite, isFavorite, isLocked = false }) {
   const whitelevels = opening?.whitelevels || {};
   const blacklevels = opening?.blacklevels || {};
 
@@ -78,9 +78,10 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
 
   return (
     <TouchableOpacity
-      style={styles.card}
-      onPress={() => onPress(opening, selectedLevel, selectedColor)}
-      activeOpacity={0.8}
+      style={[styles.card, isLocked && styles.cardLocked]}
+      onPress={() => !isLocked && onPress(opening, selectedLevel, selectedColor)}
+      activeOpacity={isLocked ? 1 : 0.8}
+      disabled={isLocked}
     >
       {/* Board Preview Image/GIF */}
       <View style={styles.imageContainer}>
@@ -91,15 +92,24 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
               uri: imageUrl,
               cache: 'reload' // Force reload on key change
             }}
-            style={styles.boardImage}
+            style={[styles.boardImage, isLocked && styles.boardImageLocked]}
             resizeMode="cover"
             // onLoadStart={() => console.log(`🖼️ Loading image for ${opening?.name} (${selectedColor} L${selectedLevel}): ${imageUrl}`)}
             // onLoad={() => console.log(`✅ Image loaded successfully`)}
             onError={(error) => console.error(`❌ Failed to load image for ${opening?.name}:`, error.nativeEvent)}
           />
         ) : (
-          <View style={styles.placeholderBoard}>
+          <View style={[styles.placeholderBoard, isLocked && styles.placeholderLocked]}>
             <Text style={styles.placeholderText}>♟</Text>
+          </View>
+        )}
+
+        {/* Lock Overlay */}
+        {isLocked && (
+          <View style={styles.lockOverlay}>
+            <View style={styles.lockIconContainer}>
+              <Text style={styles.lockIcon}>🔒</Text>
+            </View>
           </View>
         )}
       </View>
@@ -270,5 +280,37 @@ const styles = StyleSheet.create({
   favoriteIcon: {
     fontSize: 18,
     color: colors.primary,
+  },
+  cardLocked: {
+    opacity: 0.6,
+  },
+  boardImageLocked: {
+    opacity: 0.4,
+  },
+  placeholderLocked: {
+    opacity: 0.4,
+  },
+  lockOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lockIconContainer: {
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  lockIcon: {
+    fontSize: 24,
   },
 });

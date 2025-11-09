@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, Modal, ScrollView } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Modal, ScrollView, Alert } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import TrainingControls from '@/src/components/TrainingControls';
@@ -14,12 +14,14 @@ import { calculateXP, calculateLevel } from '@/src/utils/xp';
 import { useLeaderboard } from '@/src/context/LeaderboardContext';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/context/AuthContext';
+import { useSubscription } from '@/src/context/SubscriptionContext';
 import { ratingStorage } from '@/src/utils/storage';
 import RatingModal from '@/src/components/RatingModal';
 
 export default function TrainingScreen() {
   // Hooks
   const { user } = useAuth();
+  const { isPremium } = useSubscription();
   const { invalidateCache, updateUserProfile } = useLeaderboard();
 
   // Get opening data from Expo Router params
@@ -76,18 +78,12 @@ export default function TrainingScreen() {
   const completionProcessingRef = useRef(false);
 
   const sequence = useMemo(() => {
-    console.log('🔄 [SEQUENCE] useMemo recalculating sequence for:', opening?.name);
-    console.log('🔄 [SEQUENCE] PGN:', opening?.pgn);
     const parsed = parsePGN(opening?.pgn || '');
-    console.log('🔄 [SEQUENCE] Parsed result:', parsed);
     return parsed;
   }, [opening]);
 
   // Board must be recalculated on every tick change to show updates
-  const board = useMemo(() => {
-    console.log('🔄 [BOARD] useMemo recalculating board, tick:', tick);
-    return engine.board;
-  }, [tick]);
+  const board = useMemo(() => engine.board, [tick]);
   const playerColor = orientation === 'white' ? 'w' : 'b';
 
   const totalExpectedMoves = useMemo(() => {
@@ -131,24 +127,17 @@ export default function TrainingScreen() {
   };
 
   const initPositionForOrientation = () => {
-    console.log('🔄 [INIT] initPositionForOrientation called');
-    console.log('🔄 [INIT] playerColor:', playerColor);
-    console.log('🔄 [INIT] sequence:', sequence);
     engine.reset();
     if (playerColor === 'b' && sequence.white[0]) {
       try {
-        console.log('🔄 [INIT] Applying first white move:', sequence.white[0]);
         engine.move(sequence.white[0]);
-        console.log('🔄 [INIT] First white move applied successfully');
       } catch (err) {
         console.error('Failed to apply first white move:', err);
       }
     }
-    console.log('🔄 [INIT] initPositionForOrientation completed');
   };
 
   const reset = () => {
-    console.log('🔄 [RESET] reset called');
     initPositionForOrientation();
     setSelected(null);
     setLegalTargets([]);
@@ -163,57 +152,38 @@ export default function TrainingScreen() {
     setWrongMoveSquare(null);
     setCheckSquare(null);
     setEarnedXP(0);
-    console.log('🔄 [RESET] reset completed');
   };
 
   const switchToVariation = (index: number) => {
-    console.log('🔄 [SWITCH] switchToVariation called with index:', index);
     const variations = opening?.variations || [];
-    console.log('🔄 [SWITCH] variations:', variations);
 
-    if (index < 0 || index >= variations.length) {
-      console.log('🔄 [SWITCH] Invalid index, returning');
-      return;
-    }
+    if (index < 0 || index >= variations.length) return;
 
     const newVariation = variations[index];
-    console.log('🔄 [SWITCH] newVariation:', newVariation);
-
     setCurrentVariationIndex(index);
-    const mergedOpening = { ...opening, ...newVariation };
-    console.log('🔄 [SWITCH] mergedOpening:', mergedOpening);
-    setCurrentOpening(mergedOpening);
+    setCurrentOpening({ ...opening, ...newVariation });
     setErrors(0);
     setHintsUsed(0);
     setStartTime(Date.now());
     trainingCompleteRef.current = false;
 
-    console.log('🔄 [SWITCH] switchToVariation completed, waiting for useEffect');
     // Reset will be called by useEffect when opening changes
   };
 
   const handleNextVariation = () => {
-    console.log('🔄 [NEXT] handleNextVariation called');
-    console.log('🔄 [NEXT] completionProcessing:', completionProcessingRef.current);
-
     // Wait for completion processing to finish
     const proceedWithNext = () => {
       if (completionProcessingRef.current) {
-        console.log('🔄 [NEXT] Still processing, waiting...');
         setTimeout(proceedWithNext, 100);
         return;
       }
-
-      console.log('🔄 [NEXT] Processing complete, proceeding');
 
       // Close modal
       setCompletionOpen(false);
 
       const variations = opening?.variations || [];
-      console.log('🔄 [NEXT] variations.length:', variations.length);
 
       if (!variations.length) {
-        console.log('🔄 [NEXT] No variations, calling reset');
         reset();
         return;
       }
@@ -222,7 +192,18 @@ export default function TrainingScreen() {
         ? (currentVariationIndex + 1) % variations.length
         : Math.floor(Math.random() * variations.length);
 
-      console.log('🔄 [NEXT] Next index:', nextIndex);
+      // Freemium restriction: Only first 3 variations (indices 0, 1, 2)
+      if (!isPremium && nextIndex >= 3) {
+        Alert.alert(
+          'Premium Required',
+          'Free users can practice the first 3 variations. Unlock all variations with ChessMaxx Premium!',
+          [
+            { text: 'Maybe Later', style: 'cancel' },
+            { text: 'Unlock Premium', onPress: () => router.push('/paywall') }
+          ]
+        );
+        return;
+      }
 
       switchToVariation(nextIndex);
     };
@@ -296,7 +277,6 @@ export default function TrainingScreen() {
       if (trainingCompleteRef.current) return;
       trainingCompleteRef.current = true;
       completionProcessingRef.current = true;
-      console.log('🔄 [COMPLETE] Starting finalize, processing = true');
 
       const success = errors === 0;
       playCompletionSound(success);
@@ -452,7 +432,6 @@ export default function TrainingScreen() {
       }
 
       // Mark processing as complete
-      console.log('🔄 [COMPLETE] Finalize complete, processing = false');
       completionProcessingRef.current = false;
     };
 
@@ -612,7 +591,6 @@ export default function TrainingScreen() {
   };
 
   useEffect(() => {
-    console.log('🔄 [EFFECT] useEffect triggered - orientation:', orientation, 'opening:', opening?.name);
     // When orientation or opening (variation) changes, fully reset board state
     reset();
   }, [orientation, opening]);

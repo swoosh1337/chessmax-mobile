@@ -2,13 +2,20 @@ import React, { useEffect, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { StyleSheet, Text, View, FlatList, RefreshControl, TouchableOpacity } from 'react-native';
 import { colors } from '@/src/theme/colors';
-import { useLeaderboard, UserProfile } from '@/src/context/LeaderboardContext';
+import { useLeaderboard, UserProfile, SpeedrunProfile } from '@/src/context/LeaderboardContext';
 import { useAuth } from '@/src/context/AuthContext';
 import LeaderboardSkeleton from '@/src/components/LeaderboardSkeleton';
 import { formatXP, getRankSuffix } from '@/src/utils/xp';
 import { useFocusEffect } from '@react-navigation/native';
 
-type TabType = 'allTime' | 'weekly';
+type TabType = 'allTime' | 'weekly' | 'speedrun';
+
+// Format time in seconds to mm:ss format
+function formatTime(seconds: number): string {
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}:${secs.toString().padStart(2, '0')}`;
+}
 
 export default function LeaderboardScreen() {
   const { user } = useAuth();
@@ -74,8 +81,76 @@ export default function LeaderboardScreen() {
     );
   };
 
+  const renderSpeedrunEntry = ({ item, index }: { item: SpeedrunProfile; index: number }) => {
+    const isCurrentUser = user?.id === item.id;
+
+    return (
+      <View style={[styles.row, isCurrentUser && styles.rowHighlighted]}>
+        {/* Rank */}
+        <View style={styles.rankContainer}>
+          <Text style={[styles.rank, isCurrentUser && styles.textHighlighted]}>
+            {index + 1}
+          </Text>
+        </View>
+
+        {/* User Info */}
+        <View style={styles.userInfo}>
+          <Text style={[styles.username, isCurrentUser && styles.textHighlighted]} numberOfLines={1}>
+            {item.username || `Player${item.id.substring(0, 6)}`}
+            {isCurrentUser && ' (You)'}
+          </Text>
+          <Text style={[styles.xpText, isCurrentUser && styles.xpTextHighlighted]}>
+            {formatTime(item.avg_time_seconds)}
+          </Text>
+        </View>
+
+        {/* Completions Badge */}
+        <View style={[styles.levelBadge, isCurrentUser && styles.levelBadgeHighlighted]}>
+          <Text style={[styles.levelText, isCurrentUser && styles.levelTextHighlighted]}>
+            ⚡{item.perfect_completions}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
   const renderCurrentUserRank = () => {
-    if (!data?.currentUser || !user) return null;
+    if (!user) return null;
+
+    if (activeTab === 'speedrun') {
+      if (!data?.currentUserSpeedrun || data.currentUserSpeedrun.perfect_completions < 3) {
+        return (
+          <View style={styles.currentUserRank}>
+            <Text style={styles.currentUserRankTitle}>Complete 3 perfect variations to qualify!</Text>
+          </View>
+        );
+      }
+
+      const userInTop100 = data.speedrun?.some((p) => p.id === user.id);
+      if (userInTop100) return null;
+
+      return (
+        <View style={styles.currentUserRank}>
+          <Text style={styles.currentUserRankTitle}>Your Rank</Text>
+          <View style={[styles.row, styles.rowHighlighted]}>
+            <View style={styles.rankContainer}>
+              <Text style={styles.rank}>{data.currentUserSpeedrun.rank || '?'}</Text>
+            </View>
+            <View style={styles.userInfo}>
+              <Text style={styles.username} numberOfLines={1}>
+                {data.currentUserSpeedrun.username || `Player${data.currentUserSpeedrun.id.substring(0, 6)}`} (You)
+              </Text>
+              <Text style={styles.xpText}>{formatTime(data.currentUserSpeedrun.avg_time_seconds)}</Text>
+            </View>
+            <View style={[styles.levelBadge, styles.levelBadgeHighlighted]}>
+              <Text style={styles.levelText}>⚡{data.currentUserSpeedrun.perfect_completions}</Text>
+            </View>
+          </View>
+        </View>
+      );
+    }
+
+    if (!data?.currentUser) return null;
 
     const leaderboardData = activeTab === 'allTime' ? data.allTime : data.weekly;
     const userInTop100 = leaderboardData.some((p) => p.id === user.id);
@@ -107,7 +182,9 @@ export default function LeaderboardScreen() {
     );
   };
 
-  const leaderboardData = data ? (activeTab === 'allTime' ? data.allTime : data.weekly) : [];
+  const leaderboardData = data
+    ? (activeTab === 'speedrun' ? data.speedrun : (activeTab === 'allTime' ? data.allTime : data.weekly))
+    : [];
 
   return (
     <SafeAreaView style={styles.container}>
@@ -132,7 +209,16 @@ export default function LeaderboardScreen() {
           onPress={() => setActiveTab('weekly')}
         >
           <Text style={[styles.tabText, activeTab === 'weekly' && styles.tabTextActive]}>
-            This Week
+            Weekly
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.tab, activeTab === 'speedrun' && styles.tabActive]}
+          onPress={() => setActiveTab('speedrun')}
+        >
+          <Text style={[styles.tabText, activeTab === 'speedrun' && styles.tabTextActive]}>
+            ⚡Speed
           </Text>
         </TouchableOpacity>
       </View>
@@ -156,7 +242,7 @@ export default function LeaderboardScreen() {
         <FlatList
           data={leaderboardData}
           keyExtractor={(item) => item.id}
-          renderItem={renderLeaderboardEntry}
+          renderItem={activeTab === 'speedrun' ? renderSpeedrunEntry : renderLeaderboardEntry}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

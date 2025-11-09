@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Alert, Image } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { router } from 'expo-router';
 import { chessApi } from '@/src/api/chessApi';
@@ -8,10 +8,12 @@ import FilterBar from '@/src/components/FilterBar';
 import CategorySection from '@/src/components/CategorySection';
 import { groupOpenings } from '@/src/utils/openingGrouping';
 import { groupByCategory } from '@/src/utils/openingCategories';
+import { useSubscription } from '@/src/context/SubscriptionContext';
 
 const FAVORITES_KEY = '@chessmax_favorites';
 
 export default function HomeScreen() {
+  const { isPremium } = useSubscription();
   const [data, setData] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -26,14 +28,7 @@ export default function HomeScreen() {
     let mounted = true;
     const load = async () => {
       try {
-        // Redirect to auth first, then onboarding
-        const authed = await AsyncStorage.getItem('@chessmax_auth_done');
-        if (!authed) {
-          router.push('/auth');
-        } else {
-          const seen = await AsyncStorage.getItem('@chessmax_onboarding_seen');
-          if (!seen) router.push('/onboarding');
-        }
+        // Note: Auth flow is handled by app/index.tsx, no need to check here
         const openings = await chessApi.getOpenings();
         if (!mounted) return;
         const grouped = groupOpenings(Array.isArray(openings) ? openings : []);
@@ -112,8 +107,40 @@ export default function HomeScreen() {
 
   const categorizedOpenings = groupByCategory(filteredData);
 
+  // Helper: Check if opening/variation is accessible for free users
+  const isOpeningFree = (opening: any): boolean => {
+    // Premium users get everything
+    if (isPremium) return true;
+
+    // For free users: Only first opening is accessible
+    // Get the first opening from categorized openings (in display order)
+    const categories = Object.keys(categorizedOpenings);
+    if (categories.length === 0) return false;
+
+    const firstCategory = categories[0];
+    const firstOpening = categorizedOpenings[firstCategory]?.[0];
+
+    if (!firstOpening) return false;
+
+    return opening.id === firstOpening.id;
+  };
+
   // Handle opening press - navigate to training screen
   const handleOpeningPress = (opening: any, level: number, color: string) => {
+    // Check freemium restrictions
+    if (!isPremium && !isOpeningFree(opening)) {
+      // Show paywall for locked openings
+      Alert.alert(
+        'Premium Required',
+        'Unlock all openings and variations with ChessMaxx Premium!',
+        [
+          { text: 'Maybe Later', style: 'cancel' },
+          { text: 'Unlock Premium', onPress: () => router.push('/paywall') }
+        ]
+      );
+      return;
+    }
+
     const colorLevels = color === 'white' ? opening.whitelevels : opening.blacklevels;
     const levelData = colorLevels?.[level];
 
@@ -166,7 +193,11 @@ export default function HomeScreen() {
       {/* Top Bar */}
       <View style={styles.topBar}>
         <View style={styles.logoContainer}>
-          <Text style={styles.logoIcon}>♟</Text>
+          <Image
+            source={require('../../assets/images/logo_transparent.png')}
+            style={styles.logoImage}
+            resizeMode="contain"
+          />
           <Text style={styles.logoText}>ChessMaxx</Text>
         </View>
         {__DEV__ ? (
@@ -214,6 +245,8 @@ export default function HomeScreen() {
             onOpeningPress={handleOpeningPress}
             onToggleFavorite={toggleFavorite}
             favorites={favorites}
+            isPremium={isPremium}
+            isOpeningAccessible={isOpeningFree}
           />
         ))}
       </ScrollView>
@@ -244,8 +277,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  logoIcon: {
-    fontSize: 28,
+  logoImage: {
+    width: 36,
+    height: 36,
     marginRight: 8,
   },
   logoText: {
@@ -311,7 +345,14 @@ const styles = StyleSheet.create({
 });
   const resetOnboarding = async () => {
     try {
-      await AsyncStorage.removeItem('@chessmax_onboarding_seen');
+      // Clear all onboarding-related flags to restart the flow
+      await AsyncStorage.multiRemove([
+        'onboarding_seen',
+        '@chessmax_onboarding_seen', // Old key for backwards compatibility
+        '@chessmax_paywall_seen',
+      ]);
       router.push('/onboarding');
-    } catch {}
+    } catch (error) {
+      console.error('Error resetting onboarding:', error);
+    }
   };

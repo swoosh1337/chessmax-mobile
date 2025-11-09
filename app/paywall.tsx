@@ -1,41 +1,129 @@
 import React, { useMemo, useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { View, Text, StyleSheet, TouchableOpacity, Image, Switch, Linking } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Image, Switch, Linking, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/src/theme/colors';
 import { router } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useSubscription } from '@/src/context/SubscriptionContext';
 
 const PAYWALL_SEEN_KEY = '@chessmax_paywall_seen';
 
 export default function PaywallScreen() {
+  const { products, purchaseSubscription, restorePurchases, isLoading } = useSubscription();
+  const [selected, setSelected] = useState<'yearly' | 'weeklyTrial'>('weeklyTrial');
+  const [trialEnabled, setTrialEnabled] = useState(true);
+  const [purchasing, setPurchasing] = useState(false);
+
   const continueToApp = async () => {
     try {
-      // console.log('[Paywall] User clicked continue button');
-      // console.log('[Paywall] BEFORE marking paywall as seen');
-      // Mark paywall as seen
       await AsyncStorage.setItem(PAYWALL_SEEN_KEY, '1');
-      // console.log('[Paywall] AFTER AsyncStorage.setItem');
-
-      // Verify it was saved
-      // const check = await AsyncStorage.getItem(PAYWALL_SEEN_KEY);
-      // console.log('[Paywall] Verification - paywall value:', check);
-
-      // console.log('[Paywall] Navigating to /(tabs)');
       router.replace('/(tabs)');
     } catch (error) {
       console.error('[Paywall] Error saving paywall status:', error);
-      // Navigate anyway
       router.replace('/(tabs)');
     }
   };
 
-  const [selected, setSelected] = useState<'yearly' | 'weeklyTrial'>('weeklyTrial');
-  const [trialEnabled, setTrialEnabled] = useState(true);
+  const handlePurchase = async () => {
+    try {
+      setPurchasing(true);
 
-  useEffect(() => {
-    // console.log('[Paywall] Screen mounted');
-  }, []);
+      // Get the product ID based on selection
+      const productId = selected === 'yearly'
+        ? 'com.igrigolia.chessmaxmobile.yearly'
+        : 'com.igrigolia.chessmaxmobile.weekly.trial';
+
+      console.log('[Paywall] Purchasing:', productId);
+      await purchaseSubscription(productId);
+
+      // On successful purchase, mark paywall as seen and continue
+      await continueToApp();
+    } catch (error: any) {
+      console.error('[Paywall] Purchase failed:', error);
+
+      // Check if it's Expo Go error
+      if (error.message?.includes('Expo Go')) {
+        Alert.alert(
+          'Development Mode',
+          'In-app purchases are not available in Expo Go. To test purchases, build a development build with "npx expo prebuild".\n\nFor now, you can continue with limited access.',
+          [{ text: 'OK' }]
+        );
+      } else if (error.code === 'E_USER_CANCELLED') {
+        // User cancelled - don't show error
+        console.log('[Paywall] User cancelled purchase');
+      } else if (error.message?.includes('timeout')) {
+        // Purchase timeout - offer restore option
+        Alert.alert(
+          'Purchase Taking Longer Than Expected',
+          'The purchase is taking longer than usual. If you completed the payment, please wait a moment and try "Restore Purchases" below.\n\nOtherwise, you can try again.',
+          [
+            { text: 'Try Again', onPress: () => handlePurchase() },
+            { text: 'Restore Purchases', onPress: handleRestore },
+            { text: 'Cancel', style: 'cancel' }
+          ]
+        );
+      } else if (error.message?.includes('sandbox') || error.message?.includes('configured')) {
+        // Sandbox account issue
+        Alert.alert(
+          'Test Account Issue',
+          'Your sandbox test account is not configured properly. Please sign in with a valid sandbox tester account in Settings > App Store.\n\nFor now, you can continue with limited access.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        // Generic error
+        Alert.alert(
+          'Purchase Failed',
+          'Unable to complete purchase. Please check your connection and try again.\n\nIf you already paid, use "Restore Purchases" below.',
+          [
+            { text: 'Try Again', onPress: () => handlePurchase() },
+            { text: 'OK', style: 'cancel' }
+          ]
+        );
+      }
+    } finally {
+      setPurchasing(false);
+    }
+  };
+
+  const handleRestore = async () => {
+    try {
+      setPurchasing(true);
+      await restorePurchases();
+
+      // If restore was successful, continue to app
+      Alert.alert(
+        'Success',
+        'Purchases restored successfully!',
+        [{ text: 'Continue', onPress: continueToApp }]
+      );
+    } catch (error: any) {
+      console.error('[Paywall] Restore failed:', error);
+
+      // Check if it's Expo Go error
+      if (error.message?.includes('Expo Go')) {
+        Alert.alert(
+          'Development Mode',
+          'In-app purchases are not available in Expo Go. Build a development build to test restore functionality.',
+          [{ text: 'OK' }]
+        );
+      } else if (error.message?.includes('No previous purchases') || error.message?.includes('No subscription purchases')) {
+        Alert.alert(
+          'No Purchases Found',
+          'We couldn\'t find any previous purchases on this Apple ID.\n\nIf you subscribed with a different Apple ID, please sign in with that account and try again.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        Alert.alert(
+          'Restore Failed',
+          'Unable to restore purchases. Please check your connection and try again.\n\nMake sure you\'re signed in with the same Apple ID you used to purchase.',
+          [{ text: 'OK' }]
+        );
+      }
+    } finally {
+      setPurchasing(false);
+    }
+  };
 
   const ctaLabel = useMemo(() => {
     if (selected === 'weeklyTrial' && trialEnabled) return 'Try for Free';
@@ -48,7 +136,7 @@ export default function PaywallScreen() {
       <View style={styles.sheet}>
         {/* Illustration */}
         <Image source={require('../assets/mascot/turtle_playing_chess.png')} style={styles.hero} />
-        
+
         {/* Headline */}
         <Text style={styles.title}>Unlimited Access</Text>
         <View style={{ height: 4 }} />
@@ -64,7 +152,7 @@ export default function PaywallScreen() {
         <PlanRow
           active={selected === 'yearly'}
           title="Yearly Plan"
-          subtitle={<Text style={styles.planSmall}><Text style={styles.strike}>$47.88</Text> $23.99 per year</Text>}
+          subtitle={<Text style={styles.planSmall}><Text style={styles.strike}>$51.88</Text> $24.99 per year</Text>}
           badge="SAVE 50%"
           onPress={() => setSelected('yearly')}
         />
@@ -90,13 +178,26 @@ export default function PaywallScreen() {
         )}
 
         {/* CTA */}
-        <TouchableOpacity style={styles.primaryCta} onPress={continueToApp}>
-          <Text style={styles.primaryCtaText}>{ctaLabel}</Text>
+        <TouchableOpacity
+          style={[styles.primaryCta, (purchasing || isLoading) && styles.ctaDisabled]}
+          onPress={handlePurchase}
+          disabled={purchasing || isLoading}
+        >
+          {purchasing ? (
+            <ActivityIndicator color={colors.primaryForeground} />
+          ) : (
+            <Text style={styles.primaryCtaText}>{ctaLabel}</Text>
+          )}
+        </TouchableOpacity>
+
+        {/* Continue as free user */}
+        <TouchableOpacity onPress={continueToApp} style={styles.freeLink}>
+          <Text style={styles.freeLinkText}>Continue with limited access</Text>
         </TouchableOpacity>
 
         {/* Footer links */}
         <View style={styles.footerLinks}>
-          <TouchableOpacity onPress={() => { /* restore purchases hook */ }}>
+          <TouchableOpacity onPress={handleRestore} disabled={purchasing}>
             <Text style={styles.footerLinkText}>Restore</Text>
           </TouchableOpacity>
           <Text style={styles.dot}> · </Text>
@@ -165,6 +266,10 @@ const styles = StyleSheet.create({
 
   primaryCta: { marginTop: 16, backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   primaryCtaText: { color: colors.primaryForeground, fontWeight: '800' },
+  ctaDisabled: { opacity: 0.5 },
+
+  freeLink: { alignItems: 'center', marginTop: 12 },
+  freeLinkText: { color: colors.textSubtle, fontSize: 14, textDecorationLine: 'underline' },
 
   footerLinks: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 10 },
   footerLinkText: { color: colors.textSubtle, textDecorationLine: 'underline' },

@@ -69,10 +69,7 @@ export default function CompletionModal({ visible, success = true, title, messag
             </TouchableOpacity>
             <TouchableOpacity
               accessibilityRole="button"
-              onPress={() => {
-                console.log('🔄 [MODAL] Next button pressed');
-                onNext();
-              }}
+              onPress={onNext}
               disabled={!nextEnabled}
               style={[styles.button, styles.buttonSolid, !nextEnabled && styles.buttonDisabled]}
             >

@@ -11,10 +11,20 @@ export interface UserProfile {
   rank?: number; // Calculated rank in leaderboard
 }
 
+export interface SpeedrunProfile {
+  id: string;
+  username: string | null;
+  avg_time_seconds: number;
+  perfect_completions: number;
+  rank?: number;
+}
+
 interface LeaderboardData {
   allTime: UserProfile[];
   weekly: UserProfile[];
+  speedrun: SpeedrunProfile[];
   currentUser?: UserProfile;
+  currentUserSpeedrun?: SpeedrunProfile;
 }
 
 interface LeaderboardContextType {
@@ -64,8 +74,18 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
 
       if (weeklyError) throw weeklyError;
 
+      // Fetch speedrun leaderboard (top 100 fastest average times on perfect completions)
+      const { data: speedrunData, error: speedrunError } = await supabase
+        .rpc('get_speedrun_leaderboard', { min_completions: 3 });
+
+      if (speedrunError) {
+        console.error('[LeaderboardContext] Speedrun error:', speedrunError);
+        // Don't throw - continue with other leaderboards
+      }
+
       // Get current user's profile
       let currentUserProfile: UserProfile | undefined;
+      let currentUserSpeedrun: SpeedrunProfile | undefined;
       if (user) {
         const { data: userProfile, error: userError } = await supabase
           .from('user_profiles')
@@ -89,6 +109,36 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
         rank: index + 1,
       }));
 
+      const speedrunWithRanks = (speedrunData || []).map((profile: any, index: number) => ({
+        ...profile,
+        rank: index + 1,
+      }));
+
+      // Get current user's speedrun stats
+      if (user) {
+        const { data: userSpeedrunData } = await supabase
+          .rpc('get_user_speedrun_stats', { user_id_param: user.id });
+
+        if (userSpeedrunData && userSpeedrunData.length > 0) {
+          currentUserSpeedrun = userSpeedrunData[0];
+
+          // Calculate rank if not in top 100
+          const speedrunRank = speedrunWithRanks.findIndex((p: SpeedrunProfile) => p.id === user.id);
+          if (speedrunRank === -1 && currentUserSpeedrun.perfect_completions >= 3) {
+            // Count users faster than current user
+            const { count } = await supabase
+              .from('variation_completions')
+              .select('user_id', { count: 'exact', head: true })
+              .eq('errors', 0)
+              .lt('completion_time_seconds', currentUserSpeedrun.avg_time_seconds);
+
+            currentUserSpeedrun.rank = (count || 0) + 1;
+          } else if (speedrunRank !== -1) {
+            currentUserSpeedrun.rank = speedrunRank + 1;
+          }
+        }
+      }
+
       // Calculate current user's rank if not in top 100
       if (currentUserProfile) {
         const allTimeRank = allTimeWithRanks.findIndex(p => p.id === currentUserProfile.id);
@@ -110,7 +160,9 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
       setData({
         allTime: allTimeWithRanks,
         weekly: weeklyWithRanks,
+        speedrun: speedrunWithRanks,
         currentUser: currentUserProfile,
+        currentUserSpeedrun,
       });
     } catch (err: any) {
       console.error('[LeaderboardContext] Fetch error:', err);

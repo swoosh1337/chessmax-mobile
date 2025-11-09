@@ -9,6 +9,8 @@ export default function CategorySection({
   onOpeningPress,
   onToggleFavorite,
   favorites = new Set(),
+  isPremium = false,
+  isOpeningAccessible = () => true,
 }) {
   if (!openings || openings.length === 0) {
     return null;
@@ -24,16 +26,20 @@ export default function CategorySection({
 
       {/* 2-Column Grid */}
       <View style={styles.grid}>
-        {openings.map((opening) => (
-          <View key={opening.id || opening.name} style={styles.gridItem}>
-            <CompactOpeningCard
-              opening={opening}
-              onPress={onOpeningPress}
-              onToggleFavorite={onToggleFavorite}
-              isFavorite={favorites.has(opening.id || opening.name)}
-            />
-          </View>
-        ))}
+        {openings.map((opening) => {
+          const isAccessible = isOpeningAccessible(opening);
+          return (
+            <View key={opening.id || opening.name} style={styles.gridItem}>
+              <CompactOpeningCard
+                opening={opening}
+                onPress={onOpeningPress}
+                onToggleFavorite={onToggleFavorite}
+                isFavorite={favorites.has(opening.id || opening.name)}
+                isLocked={!isAccessible}
+              />
+            </View>
+          );
+        })}
       </View>
     </View>
   );
