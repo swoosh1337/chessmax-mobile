@@ -201,11 +201,11 @@ export default function PaywallScreen() {
             <Text style={styles.footerLinkText}>Restore</Text>
           </TouchableOpacity>
           <Text style={styles.dot}> · </Text>
-          <TouchableOpacity onPress={() => Linking.openURL('https://example.com/terms')}>
+          <TouchableOpacity onPress={() => Linking.openURL('https://docs.google.com/document/d/1T1E8GAjzkU5bU9cvdm70qwJtWmJOuagkNFu2uxmo35c/edit?usp=sharing')}>
             <Text style={styles.footerLinkText}>Terms of Use</Text>
           </TouchableOpacity>
           <Text style={styles.dot}> & </Text>
-          <TouchableOpacity onPress={() => Linking.openURL('https://example.com/privacy')}>
+          <TouchableOpacity onPress={() => Linking.openURL('https://docs.google.com/document/d/1q-mALK_tyRK_kFq70HuLJd8Yk88tvsnTtQJw1wS0YQQ/edit?usp=sharing')}>
             <Text style={styles.footerLinkText}>Privacy Policy</Text>
           </TouchableOpacity>
         </View>

@@ -7,27 +7,71 @@ import { router } from 'expo-router';
 import { supabase } from '@/src/lib/supabase';
 import { useLeaderboard } from '@/src/context/LeaderboardContext';
 import { useSubscription } from '@/src/context/SubscriptionContext';
+import { useTraining } from '@/src/context/TrainingContext';
 import { formatXP, getLevelProgress } from '@/src/utils/xp';
+import TrainingCalendar from '@/src/components/TrainingCalendar';
+import TrainingStatistics from '@/src/components/TrainingStatistics';
+import ProfileStatsSkeleton from '@/src/components/ProfileStatsSkeleton';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
-  const { data: leaderboardData, refetch } = useLeaderboard();
+  const { data: leaderboardData, loading: loadingLeaderboard, refetch } = useLeaderboard();
   const { isPremium, products, isLoading: loadingSubscription } = useSubscription();
+  const { streak, totalMinutes, isLoading: loadingTraining } = useTraining();
   const [deleting, setDeleting] = useState(false);
   const [username, setUsername] = useState('');
   const [editingUsername, setEditingUsername] = useState(false);
   const [savingUsername, setSavingUsername] = useState(false);
   const [loadingProfile, setLoadingProfile] = useState(true);
+  const [showStats, setShowStats] = useState<'calendar' | 'stats'>('calendar');
+  const [cachedProfile, setCachedProfile] = useState<any>(null);
 
-  // Get user profile from leaderboard data
-  const userProfile = leaderboardData?.currentUser;
+  // Get user profile from leaderboard data or cache
+  const userProfile = leaderboardData?.currentUser || cachedProfile;
 
-  // Load user profile on mount
+  // Combined loading state
+  const isLoadingStats = loadingProfile || loadingLeaderboard;
+
+  // Cache key for profile data
+  const PROFILE_CACHE_KEY = `@profile_cache_${user?.id}`;
+
+  // Load cached profile on mount
   useEffect(() => {
     if (user) {
+      loadCachedProfile();
       loadUserProfile();
     }
   }, [user]);
+
+  // Cache leaderboard data when it updates
+  useEffect(() => {
+    if (leaderboardData?.currentUser && user) {
+      cacheProfile(leaderboardData.currentUser);
+    }
+  }, [leaderboardData?.currentUser, user]);
+
+  const loadCachedProfile = async () => {
+    if (!user) return;
+    try {
+      const cached = await AsyncStorage.getItem(PROFILE_CACHE_KEY);
+      if (cached) {
+        setCachedProfile(JSON.parse(cached));
+      }
+    } catch (error) {
+      console.error('[Profile] Error loading cache:', error);
+    }
+  };
+
+  const cacheProfile = async (profile: any) => {
+    if (!user) return;
+    try {
+      await AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
+      setCachedProfile(profile);
+    } catch (error) {
+      console.error('[Profile] Error saving cache:', error);
+    }
+  };
 
   const loadUserProfile = async () => {
     if (!user) return;
@@ -209,10 +253,8 @@ export default function ProfileScreen() {
         {user ? (
           <View style={styles.section}>
             {/* XP and Level Stats */}
-            {loadingProfile ? (
-              <View style={styles.infoCard}>
-                <ActivityIndicator size="large" color={colors.primary} />
-              </View>
+            {isLoadingStats && !cachedProfile ? (
+              <ProfileStatsSkeleton />
             ) : userProfile ? (
               <>
                 <View style={styles.statsCard}>
@@ -229,6 +271,11 @@ export default function ProfileScreen() {
                   <View style={styles.statItem}>
                     <Text style={styles.statValue}>{userProfile.level}</Text>
                     <Text style={styles.statLabel}>Level</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Text style={styles.statValue}>🔥 {loadingTraining ? '-' : streak}</Text>
+                    <Text style={styles.statLabel}>Day Streak</Text>
                   </View>
                 </View>
 
@@ -306,6 +353,37 @@ export default function ProfileScreen() {
                       )}
                     </>
                   )}
+                </View>
+
+                {/* Training Stats Tabs */}
+                <View style={styles.statsTabsContainer}>
+                  <View style={styles.statsTabs}>
+                    <TouchableOpacity
+                      style={[styles.statsTab, showStats === 'calendar' && styles.statsTabActive]}
+                      onPress={() => setShowStats('calendar')}
+                    >
+                      <Text style={[styles.statsTabText, showStats === 'calendar' && styles.statsTabTextActive]}>
+                        Calendar
+                      </Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.statsTab, showStats === 'stats' && styles.statsTabActive]}
+                      onPress={() => setShowStats('stats')}
+                    >
+                      <Text style={[styles.statsTabText, showStats === 'stats' && styles.statsTabTextActive]}>
+                        Statistics
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Tab Content */}
+                  <View style={styles.statsContent}>
+                    {showStats === 'calendar' ? (
+                      <TrainingCalendar />
+                    ) : (
+                      <TrainingStatistics />
+                    )}
+                  </View>
                 </View>
               </>
             ) : null}
@@ -431,30 +509,34 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     borderRadius: 12,
-    padding: 20,
+    padding: 16,
     marginBottom: 12,
     flexDirection: 'row',
     justifyContent: 'space-around',
+    alignItems: 'stretch',
   },
   statItem: {
     alignItems: 'center',
+    justifyContent: 'center',
     flex: 1,
   },
   statValue: {
     color: colors.primary,
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '800',
     marginBottom: 4,
+    textAlign: 'center',
   },
   statLabel: {
     color: colors.textSubtle,
-    fontSize: 12,
+    fontSize: 10,
     fontWeight: '600',
+    textAlign: 'center',
   },
   statDivider: {
     width: 1,
     backgroundColor: colors.border,
-    marginHorizontal: 12,
+    marginHorizontal: 8,
   },
   progressCard: {
     backgroundColor: colors.card,
@@ -642,5 +724,41 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnDeleteText: { color: '#dc2626', fontWeight: '700', fontSize: 16 },
+  statsTabsContainer: {
+    marginBottom: 12,
+  },
+  statsTabs: {
+    flexDirection: 'row',
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 4,
+    marginBottom: 12,
+  },
+  statsTab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  statsTabActive: {
+    backgroundColor: colors.primary,
+  },
+  statsTabText: {
+    color: colors.textSubtle,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  statsTabTextActive: {
+    color: colors.background,
+  },
+  statsContent: {
+    minHeight: 400,
+  },
+  loadingText: {
+    color: colors.textSubtle,
+    fontSize: 14,
+    textAlign: 'center',
+    marginTop: 12,
+  },
 });
 

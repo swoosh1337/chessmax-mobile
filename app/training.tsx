@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View, Modal, ScrollView, Alert } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View, Modal, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { Asset } from 'expo-asset';
 import TrainingControls from '@/src/components/TrainingControls';
 import CompletionModal from '@/src/components/CompletionModal';
 import GraphicalBoard from '@/src/components/GraphicalBoard';
@@ -15,14 +16,17 @@ import { useLeaderboard } from '@/src/context/LeaderboardContext';
 import { supabase } from '@/src/lib/supabase';
 import { useAuth } from '@/src/context/AuthContext';
 import { useSubscription } from '@/src/context/SubscriptionContext';
+import { useTraining } from '@/src/context/TrainingContext';
 import { ratingStorage } from '@/src/utils/storage';
 import RatingModal from '@/src/components/RatingModal';
+import pieceMap from '@/src/assets/pieces/index';
 
 export default function TrainingScreen() {
   // Hooks
   const { user } = useAuth();
   const { isPremium } = useSubscription();
   const { invalidateCache, updateUserProfile } = useLeaderboard();
+  const { startSession, endSession } = useTraining();
 
   // Get opening data from Expo Router params
   const params = useLocalSearchParams();
@@ -53,6 +57,27 @@ export default function TrainingScreen() {
     // console.log('=== END TRAINING SCREEN DEBUG ===');
   }, [opening]);
 
+  // Start training session on mount
+  useEffect(() => {
+    const initSession = async () => {
+      if (!user || !opening) return;
+
+      try {
+        const sessionId = await startSession(
+          opening.name || 'Unknown Opening',
+          opening.variations?.[currentVariationIndex]?.name,
+          opening.category
+        );
+        setTrainingSessionId(sessionId);
+        console.log('[Training] Session started:', sessionId);
+      } catch (error) {
+        console.error('[Training] Error starting session:', error);
+      }
+    };
+
+    initSession();
+  }, [user, opening, currentVariationIndex]);
+
   const [engine] = useState(() => new ChessEngine());
   const [orientation, setOrientation] = useState(opening?.color === 'b' ? 'black' : 'white');
   const [selected, setSelected] = useState<string | null>(null);
@@ -76,6 +101,35 @@ export default function TrainingScreen() {
   const [ratingModalOpen, setRatingModalOpen] = useState(false);
   const [earnedXP, setEarnedXP] = useState(0);
   const completionProcessingRef = useRef(false);
+  const [trainingSessionId, setTrainingSessionId] = useState<string | null>(null);
+  const [piecesLoaded, setPiecesLoaded] = useState(false);
+
+  // Preload chess piece images
+  useEffect(() => {
+    const loadPieces = async () => {
+      try {
+        console.log('🎨 Preloading chess pieces...');
+        const pieceAssets = Object.values(pieceMap);
+        await Asset.loadAsync(pieceAssets);
+        console.log('✅ Chess pieces loaded');
+        setPiecesLoaded(true);
+      } catch (error) {
+        console.error('❌ Failed to load pieces:', error);
+        // Still allow the game to continue even if preload fails
+        setPiecesLoaded(true);
+      }
+    };
+    loadPieces();
+  }, []);
+
+  // Debug logging for state changes
+  useEffect(() => {
+    console.log('🟢 STATE UPDATE - selected:', selected, 'legalTargets:', legalTargets);
+  }, [selected, legalTargets]);
+
+  useEffect(() => {
+    console.log('💡 HINT STATE UPDATE - hintSource:', hintSource, 'hintTarget:', hintTarget);
+  }, [hintSource, hintTarget]);
 
   const sequence = useMemo(() => {
     const parsed = parsePGN(opening?.pgn || '');
@@ -147,8 +201,12 @@ export default function TrainingScreen() {
     trainingCompleteRef.current = false;
     setTick((t) => t + 1);
     setLastMove({ from: null, to: null });
+    // Clear hint highlights and timeout
+    if (hintTimeout.current) clearTimeout(hintTimeout.current);
     setHintSource(null);
     setHintTarget(null);
+    // Clear wrong move highlight and timeout
+    if (wrongMoveTimeout.current) clearTimeout(wrongMoveTimeout.current);
     setWrongMoveSquare(null);
     setCheckSquare(null);
     setEarnedXP(0);
@@ -414,6 +472,21 @@ export default function TrainingScreen() {
         }
       }
 
+      // End training session
+      if (trainingSessionId && user) {
+        try {
+          await endSession(
+            trainingSessionId,
+            engine.history().length,
+            errors,
+            xpResult.totalXP
+          );
+          console.log('[Training] Session ended:', trainingSessionId);
+        } catch (error) {
+          console.error('[Training] Error ending session:', error);
+        }
+      }
+
       // Increment variations completed count and check for rating prompt
       try {
         const variationsCompleted = await ratingStorage.incrementVariationsCompleted();
@@ -450,6 +523,16 @@ export default function TrainingScreen() {
       return;
     }
 
+    // Clear selection immediately after player's successful move
+    setSelected(null);
+    setLegalTargets([]);
+    // Also clear hint highlights and wrong move indicator (and their timeouts)
+    if (hintTimeout.current) clearTimeout(hintTimeout.current);
+    setHintSource(null);
+    setHintTarget(null);
+    if (wrongMoveTimeout.current) clearTimeout(wrongMoveTimeout.current);
+    setWrongMoveSquare(null);
+
     // Correct move: auto-play opponent response if available
     const oppSan = getOpponentResponse();
     if (oppSan) {
@@ -475,9 +558,13 @@ export default function TrainingScreen() {
   };
 
   const onSquarePress = (sq: string) => {
-    // console.log('🔥 Square pressed:', sq);
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
+    console.log('🎯 SQUARE PRESSED:', sq);
     const piece = engine.getPiece(sq);
-    // console.log('🔥 Piece at square:', piece);
+    console.log('🎯 Piece at square:', piece);
+    console.log('🎯 Current selected:', selected);
+    console.log('🎯 Current legalTargets:', legalTargets);
+    console.log('🎯 Player color:', playerColor);
 
     if (selected) {
       // console.log('🔥 Already have selection:', selected);
@@ -488,10 +575,33 @@ export default function TrainingScreen() {
         return;
       }
 
+      // Validate that selected square still has a valid piece
+      const selectedPiece = engine.getPiece(selected);
+      console.log('🎯 Validating selected piece at', selected, ':', selectedPiece);
+      if (!selectedPiece || selectedPiece.color !== playerColor) {
+        console.log('⚠️ STALE SELECTION! Clearing and reselecting');
+        // Selection is stale, clear it and start fresh
+        setSelected(null);
+        setLegalTargets([]);
+        // Try selecting the clicked square instead
+        if (piece && piece.color === playerColor) {
+          console.log('🎯 Selecting new piece at', sq);
+          // Clear hint when selecting a piece
+          if (hintTimeout.current) clearTimeout(hintTimeout.current);
+          setHintSource(null);
+          setHintTarget(null);
+          setSelected(sq);
+          const moves = engine.getLegalMoves(sq);
+          console.log('🎯 Legal moves for', sq, ':', moves.map((m: any) => m.to));
+          setLegalTargets(moves.map((m: any) => m.to));
+        }
+        return;
+      }
+
       // Try to move
       const legal = engine.getLegalMoves(selected);
       const legalSquares = legal.map((m: any) => m.to);
-      // console.log('🔥 Legal targets:', legalSquares);
+      console.log('🎯 Legal moves from', selected, ':', legalSquares);
 
       if (legalSquares.includes(sq)) {
         // console.log('🔥 Attempting move from', selected, 'to', sq);
@@ -509,35 +619,56 @@ export default function TrainingScreen() {
           console.error('❌ Move failed:', err);
         }
       } else {
-        // console.log('🔥 Not a legal move, checking if new piece selection');
+        console.log('🎯 Not a legal target, checking for new piece selection');
         // Select new piece
         if (piece && piece.color === playerColor) {
-          // console.log('🔥 Selecting new piece at', sq);
+          console.log('🎯 Selecting different piece at', sq);
+          // Clear hint when selecting a piece
+          if (hintTimeout.current) clearTimeout(hintTimeout.current);
+          setHintSource(null);
+          setHintTarget(null);
           setSelected(sq);
           const moves = engine.getLegalMoves(sq);
+          console.log('🎯 Legal moves for', sq, ':', moves.map((m: any) => m.to));
           setLegalTargets(moves.map((m: any) => m.to));
         } else {
-          // console.log('🔥 Clearing selection');
+          console.log('🎯 Clearing selection (clicked empty or opponent piece)');
           setSelected(null);
           setLegalTargets([]);
         }
       }
     } else {
-      // console.log('🔥 No selection yet');
-      // First selection
+      console.log('🎯 No previous selection');
+      // First selection - ONLY allow player's pieces
       if (piece && piece.color === playerColor) {
-        // console.log('🔥 First selection at', sq, 'piece:', piece);
+        console.log('🎯 First selection at', sq, 'piece:', piece);
+        // Clear hint when selecting a piece
+        if (hintTimeout.current) clearTimeout(hintTimeout.current);
+        setHintSource(null);
+        setHintTarget(null);
         setSelected(sq);
         const moves = engine.getLegalMoves(sq);
-        // console.log('🔥 Legal moves:', moves.map((m: any) => m.to));
+        console.log('🎯 Legal moves for', sq, ':', moves.map((m: any) => m.to));
         setLegalTargets(moves.map((m: any) => m.to));
+      } else if (piece && piece.color !== playerColor) {
+        console.log('⛔ BLOCKED: Clicked opponent piece at', sq, '- not showing moves');
+      } else {
+        console.log('🎯 Clicked empty square, no selection');
       }
     }
+    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   };
 
   const onDropMove = (from: string, to: string) => {
     // console.log('🔥 Drop move from', from, 'to', to);
     if (!from || !to) return;
+
+    // Validate that the piece being dragged belongs to the player
+    const piece = engine.getPiece(from);
+    if (!piece || piece.color !== playerColor) {
+      console.warn('[Training] Attempted to drag opponent piece or empty square');
+      return;
+    }
 
     const legal = engine.getLegalMoves(from);
     const legalSquares = legal.map((m: any) => m.to);
@@ -567,27 +698,48 @@ export default function TrainingScreen() {
   };
 
   const handleHint = () => {
+    // If hint is currently showing, hide it (toggle behavior)
+    if (hintSource || hintTarget) {
+      console.log('💡 HINT: Toggling OFF - clearing hint highlights');
+      if (hintTimeout.current) clearTimeout(hintTimeout.current);
+      setHintSource(null);
+      setHintTarget(null);
+      return;
+    }
+
     const expectedSan = getExpectedMove();
-    if (!expectedSan) return;
+    console.log('💡 HINT: Expected move SAN:', expectedSan);
+    if (!expectedSan) {
+      console.log('💡 HINT: No expected move found');
+      return;
+    }
 
     try {
-      const moves = engine.history();
       const allMoves = engine.moves({ verbose: true });
+      console.log('💡 HINT: All legal moves:', allMoves.map((m: any) => m.san));
       const hintMove = allMoves.find((m: any) => m.san === expectedSan);
+      console.log('💡 HINT: Found hint move:', hintMove);
 
       if (hintMove) {
+        console.log('💡 HINT: Setting highlights - from:', hintMove.from, 'to:', hintMove.to);
         setHintsUsed((h) => h + 1);
         setHintSource(hintMove.from);
         setHintTarget(hintMove.to);
         H.warning();
 
+        // Auto-clear hint after 3 seconds
         if (hintTimeout.current) clearTimeout(hintTimeout.current);
         hintTimeout.current = setTimeout(() => {
+          console.log('💡 HINT: Auto-clearing hint highlights after timeout');
           setHintSource(null);
           setHintTarget(null);
-        }, 2000);
+        }, 3000);
+      } else {
+        console.log('💡 HINT: Expected move not found in legal moves!');
       }
-    } catch {}
+    } catch (err) {
+      console.error('💡 HINT ERROR:', err);
+    }
   };
 
   useEffect(() => {
@@ -642,7 +794,7 @@ export default function TrainingScreen() {
           orientation={orientation}
           selected={selected}
           legalTargets={legalTargets}
-          lastMove={lastMove}
+          lastMove={{ from: null, to: null }}
           captureSquare={captureSquare}
           hintSource={hintSource}
           hintTarget={hintTarget}
@@ -652,7 +804,16 @@ export default function TrainingScreen() {
           onDropMove={onDropMove}
           showCoords={false}
           showCornerMarkers={true}
+          playerColor={playerColor}
         />
+
+        {/* Loading Overlay */}
+        {!piecesLoaded && (
+          <View style={styles.loadingOverlay}>
+            <ActivityIndicator size="large" color={colors.primary} />
+            <Text style={styles.loadingText}>Loading pieces...</Text>
+          </View>
+        )}
       </View>
 
       {/* Training Controls */}
@@ -790,6 +951,25 @@ const styles = StyleSheet.create({
   boardContainer: {
     alignItems: 'center',
     marginVertical: 20,
+    position: 'relative',
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 16,
+    zIndex: 1000,
+  },
+  loadingText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '600',
+    marginTop: 12,
   },
   controlsContainer: {
     paddingHorizontal: 16,

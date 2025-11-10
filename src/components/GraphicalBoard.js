@@ -18,11 +18,17 @@ function squareName(fileIndex, rankIndex, orientation = 'white') {
   return `${file}${rank}`;
 }
 
-export default function GraphicalBoard({ board, orientation = 'white', selected, legalTargets = [], lastMove = {}, captureSquare, hintSource, hintTarget, wrongMoveSquare, checkSquare, onSquarePress, onDropMove, showCoords = true, showCornerMarkers = true }) {
+export default function GraphicalBoard({ board, orientation = 'white', selected, legalTargets = [], lastMove = {}, captureSquare, hintSource, hintTarget, wrongMoveSquare, checkSquare, onSquarePress, onDropMove, showCoords = true, showCornerMarkers = true, playerColor }) {
   const size = Math.min(Dimensions.get('window').width - 24, 360);
   const square = Math.floor(size / 8);
 
   const legalSet = useMemo(() => new Set(legalTargets || []), [legalTargets]);
+
+  // Debug logging
+  console.log('📊 GRAPHICAL BOARD RENDER:');
+  console.log('  - selected:', selected);
+  console.log('  - legalTargets:', legalTargets);
+  console.log('  - legalSet:', Array.from(legalSet));
   const lmFrom = lastMove?.from;
   const lmTo = lastMove?.to;
 
@@ -47,8 +53,8 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
             <Stop offset="100%" stopColor="#f6f66988" />
           </LinearGradient>
           <LinearGradient id="wrong" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0%" stopColor="#ff000055" />
-            <Stop offset="100%" stopColor="#ff000088" />
+            <Stop offset="0%" stopColor="#ff0000AA" />
+            <Stop offset="100%" stopColor="#ff0000FF" />
           </LinearGradient>
           <LinearGradient id="check" x1="0" y1="0" x2="1" y2="1">
             <Stop offset="0%" stopColor="#ef444466" />
@@ -80,6 +86,15 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
             const isHintSource = hintSource === sq;
             const isHintTarget = hintTarget === sq;
             const strokeWidth = 3;
+
+            // Debug logging for highlighted squares
+            if (isLegal) {
+              console.log('  ✅ Highlighting legal square:', sq);
+            }
+            if (isSelected) {
+              console.log('  🔵 Highlighting selected square:', sq);
+            }
+
             return (
               <React.Fragment key={`overlay-${r}-${f}`}>
                 {isLast && (
@@ -113,9 +128,9 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
                     width={square - strokeWidth}
                     height={square - strokeWidth}
                     fill="none"
-                    stroke="#22c55e"
-                    strokeWidth={strokeWidth}
-                    opacity={0.95}
+                    stroke="#00ff00"
+                    strokeWidth={4}
+                    opacity={1.0}
                   />
                 )}
                 {isHintSource && (
@@ -126,9 +141,9 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
                     width={square - strokeWidth}
                     height={square - strokeWidth}
                     fill="none"
-                    stroke="#fff59d"
-                    strokeWidth={strokeWidth}
-                    opacity={0.95}
+                    stroke="#ffff00"
+                    strokeWidth={4}
+                    opacity={1.0}
                   />
                 )}
                 {isHintTarget && (
@@ -139,9 +154,9 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
                     width={square - strokeWidth}
                     height={square - strokeWidth}
                     fill="none"
-                    stroke="#ef4444"
-                    strokeWidth={strokeWidth}
-                    opacity={0.95}
+                    stroke="#ff0000"
+                    strokeWidth={4}
+                    opacity={1.0}
                   />
                 )}
               </React.Fragment>
@@ -188,6 +203,7 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
               onDrop={onDropMove}
               onSquarePress={onSquarePress}
               orientation={orientation}
+              playerColor={playerColor}
             />
           );
         })

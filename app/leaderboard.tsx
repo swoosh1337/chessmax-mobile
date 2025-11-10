@@ -84,6 +84,19 @@ export default function LeaderboardScreen() {
   const renderSpeedrunEntry = ({ item, index }: { item: SpeedrunProfile; index: number }) => {
     const isCurrentUser = user?.id === item.id;
 
+    // Use currentUser's username if this is the current user and their username is available
+    const displayName = isCurrentUser && data?.currentUser?.username
+      ? data.currentUser.username
+      : (item.username || `Player${item.id.substring(0, 6)}`);
+
+    if (isCurrentUser) {
+      console.log('[Leaderboard] Rendering current user entry');
+      console.log('  - item.username:', item.username);
+      console.log('  - data.currentUser?.username:', data?.currentUser?.username);
+      console.log('  - displayName:', displayName);
+      console.log('  - perfect_completions:', item.perfect_completions);
+    }
+
     return (
       <View style={[styles.row, isCurrentUser && styles.rowHighlighted]}>
         {/* Rank */}
@@ -96,7 +109,7 @@ export default function LeaderboardScreen() {
         {/* User Info */}
         <View style={styles.userInfo}>
           <Text style={[styles.username, isCurrentUser && styles.textHighlighted]} numberOfLines={1}>
-            {item.username || `Player${item.id.substring(0, 6)}`}
+            {displayName}
             {isCurrentUser && ' (You)'}
           </Text>
           <Text style={[styles.xpText, isCurrentUser && styles.xpTextHighlighted]}>
@@ -105,9 +118,10 @@ export default function LeaderboardScreen() {
         </View>
 
         {/* Completions Badge */}
-        <View style={[styles.levelBadge, isCurrentUser && styles.levelBadgeHighlighted]}>
-          <Text style={[styles.levelText, isCurrentUser && styles.levelTextHighlighted]}>
-            ⚡{item.perfect_completions}
+        <View style={[styles.speedBadge, isCurrentUser && styles.speedBadgeHighlighted]}>
+          <Text style={[styles.speedBadgeIcon, isCurrentUser && styles.speedBadgeIconHighlighted]}>⚡</Text>
+          <Text style={[styles.speedBadgeCount, isCurrentUser && styles.speedBadgeCountHighlighted]}>
+            {item.perfect_completions}
           </Text>
         </View>
       </View>
@@ -126,24 +140,47 @@ export default function LeaderboardScreen() {
         );
       }
 
+      // Check if user is in top 100 (appears in leaderboard list)
       const userInTop100 = data.speedrun?.some((p) => p.id === user.id);
-      if (userInTop100) return null;
+      console.log('[Leaderboard] User in top 100?', userInTop100, 'User ID:', user.id);
+      console.log('[Leaderboard] Speedrun data:', data.speedrun?.map(p => p.id));
+
+      // IMPORTANT: Don't show "YOUR RANK" if user is already in the main list
+      if (userInTop100) {
+        console.log('[Leaderboard] User is in top 100, not showing YOUR RANK section');
+        return null;
+      }
+
+      // Show user's rank only if they're outside top 100
+      console.log('[Leaderboard] Showing YOUR RANK section for user outside top 100');
+
+      // Use currentUser's username if available
+      const displayName = data.currentUser?.username
+        ? data.currentUser.username
+        : (data.currentUserSpeedrun.username || `Player${data.currentUserSpeedrun.id.substring(0, 6)}`);
 
       return (
         <View style={styles.currentUserRank}>
-          <Text style={styles.currentUserRankTitle}>Your Rank</Text>
-          <View style={[styles.row, styles.rowHighlighted]}>
+          <Text style={styles.currentUserRankTitle}>YOUR RANK</Text>
+          <View style={styles.yourRankRow}>
             <View style={styles.rankContainer}>
-              <Text style={styles.rank}>{data.currentUserSpeedrun.rank || '?'}</Text>
+              <Text style={[styles.rank, styles.textHighlighted]}>
+                {data.currentUserSpeedrun.rank || '?'}
+              </Text>
             </View>
             <View style={styles.userInfo}>
-              <Text style={styles.username} numberOfLines={1}>
-                {data.currentUserSpeedrun.username || `Player${data.currentUserSpeedrun.id.substring(0, 6)}`} (You)
+              <Text style={[styles.username, styles.textHighlighted]} numberOfLines={1}>
+                {displayName} (You)
               </Text>
-              <Text style={styles.xpText}>{formatTime(data.currentUserSpeedrun.avg_time_seconds)}</Text>
+              <Text style={[styles.xpText, styles.xpTextHighlighted]}>
+                {formatTime(data.currentUserSpeedrun.avg_time_seconds)}
+              </Text>
             </View>
-            <View style={[styles.levelBadge, styles.levelBadgeHighlighted]}>
-              <Text style={styles.levelText}>⚡{data.currentUserSpeedrun.perfect_completions}</Text>
+            <View style={[styles.speedBadge, styles.speedBadgeHighlighted]}>
+              <Text style={[styles.speedBadgeIcon, styles.speedBadgeIconHighlighted]}>⚡</Text>
+              <Text style={[styles.speedBadgeCount, styles.speedBadgeCountHighlighted]}>
+                {data.currentUserSpeedrun.perfect_completions}
+              </Text>
             </View>
           </View>
         </View>
@@ -374,18 +411,60 @@ const styles = StyleSheet.create({
     color: colors.background,
   },
   currentUserRank: {
-    paddingVertical: 12,
+    paddingTop: 16,
+    paddingBottom: 12,
     paddingHorizontal: 20,
-    backgroundColor: colors.card,
+    backgroundColor: colors.background,
     borderBottomWidth: 2,
     borderBottomColor: colors.primary,
   },
   currentUserRankTitle: {
     color: colors.textSubtle,
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    fontWeight: '700',
     textTransform: 'uppercase',
-    marginBottom: 8,
+    letterSpacing: 1,
+    marginBottom: 12,
+  },
+  yourRankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderLeftWidth: 4,
+    borderLeftColor: colors.primary,
+  },
+  speedBadge: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: colors.card,
+    borderWidth: 2,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  speedBadgeHighlighted: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  speedBadgeIcon: {
+    fontSize: 16,
+    marginBottom: 2,
+  },
+  speedBadgeIconHighlighted: {
+    color: colors.background,
+  },
+  speedBadgeCount: {
+    color: colors.foreground,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  speedBadgeCountHighlighted: {
+    color: colors.background,
   },
   errorContainer: {
     flex: 1,

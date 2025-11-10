@@ -45,11 +45,36 @@ export async function signInWithGoogle() {
       console.log('[Google Auth] WebBrowser full result:', JSON.stringify(result, null, 2));
 
       if (result.type === 'success' && result.url) {
-        console.log('[Google Auth] Auth successful, extracting tokens...');
+        console.log('[Google Auth] Auth successful, processing callback...');
         console.log('[Google Auth] Callback URL:', result.url);
 
-        // Extract tokens from URL
+        // Parse the callback URL
         const url = new URL(result.url);
+
+        // Check for PKCE authorization code (in query string)
+        const code = url.searchParams.get('code');
+        console.log('[Google Auth] Authorization code present:', !!code);
+
+        if (code) {
+          // PKCE flow: Exchange code for session
+          console.log('[Google Auth] Exchanging authorization code for session...');
+          const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
+
+          if (sessionError) {
+            console.error('[Google Auth] Code exchange error:', sessionError);
+            return { ok: false, error: sessionError.message };
+          }
+
+          console.log('[Google Auth] Sign-in successful (PKCE)');
+          return {
+            ok: true,
+            provider: 'google',
+            session: sessionData.session,
+            user: sessionData.user,
+          };
+        }
+
+        // Fallback: Check for tokens in hash fragment (implicit flow)
         const params = new URLSearchParams(url.hash.substring(1));
         const accessToken = params.get('access_token');
         const refreshToken = params.get('refresh_token');
@@ -68,17 +93,17 @@ export async function signInWithGoogle() {
             return { ok: false, error: sessionError.message };
           }
 
-          console.log('[Google Auth] Sign-in successful');
+          console.log('[Google Auth] Sign-in successful (implicit)');
           return {
             ok: true,
             provider: 'google',
             session: sessionData.session,
             user: sessionData.user,
           };
-        } else {
-          console.error('[Google Auth] Missing tokens in callback URL');
-          return { ok: false, error: 'Missing authentication tokens' };
         }
+
+        console.error('[Google Auth] No code or tokens found in callback URL');
+        return { ok: false, error: 'Missing authentication data' };
       } else if (result.type === 'cancel') {
         console.log('[Google Auth] User cancelled sign-in');
         return { ok: false, error: 'User cancelled sign-in' };
@@ -132,11 +157,42 @@ export async function signInWithApple() {
       );
 
       if (result.type === 'success' && result.url) {
-        // Extract tokens from URL
+        console.log('[Apple Auth] Auth successful, processing callback...');
+        console.log('[Apple Auth] Callback URL:', result.url);
+
+        // Parse the callback URL
         const url = new URL(result.url);
+
+        // Check for PKCE authorization code (in query string)
+        const code = url.searchParams.get('code');
+        console.log('[Apple Auth] Authorization code present:', !!code);
+
+        if (code) {
+          // PKCE flow: Exchange code for session
+          console.log('[Apple Auth] Exchanging authorization code for session...');
+          const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
+
+          if (sessionError) {
+            console.error('[Apple Auth] Code exchange error:', sessionError);
+            return { ok: false, error: sessionError.message };
+          }
+
+          console.log('[Apple Auth] Sign-in successful (PKCE)');
+          return {
+            ok: true,
+            provider: 'apple',
+            session: sessionData.session,
+            user: sessionData.user,
+          };
+        }
+
+        // Fallback: Check for tokens in hash fragment (implicit flow)
         const params = new URLSearchParams(url.hash.substring(1));
         const accessToken = params.get('access_token');
         const refreshToken = params.get('refresh_token');
+
+        console.log('[Apple Auth] Access token present:', !!accessToken);
+        console.log('[Apple Auth] Refresh token present:', !!refreshToken);
 
         if (accessToken && refreshToken) {
           const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
@@ -145,10 +201,11 @@ export async function signInWithApple() {
           });
 
           if (sessionError) {
+            console.error('[Apple Auth] Session error:', sessionError);
             return { ok: false, error: sessionError.message };
           }
 
-          console.log('[Apple Auth] Sign-in successful');
+          console.log('[Apple Auth] Sign-in successful (implicit)');
           return {
             ok: true,
             provider: 'apple',
@@ -156,6 +213,9 @@ export async function signInWithApple() {
             user: sessionData.user,
           };
         }
+
+        console.error('[Apple Auth] No code or tokens found in callback URL');
+        return { ok: false, error: 'Missing authentication data' };
       } else if (result.type === 'cancel') {
         return { ok: false, error: 'User cancelled sign-in' };
       }

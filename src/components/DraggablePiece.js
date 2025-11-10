@@ -9,17 +9,21 @@ const PIECE_UNICODE = {
   P: '♙︎', R: '♖︎', N: '♘︎', B: '♗︎', Q: '♕︎', K: '♔︎' 
 };
 
-export default function DraggablePiece({ fromSquare, piece, squareSize, startX, startY, onDrop, onSquarePress, orientation }) {
+export default function DraggablePiece({ fromSquare, piece, squareSize, startX, startY, onDrop, onSquarePress, orientation, playerColor }) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const [selectedDuringDrag, setSelectedDuringDrag] = useState(false);
   // Require a substantial move before treating as a drag to avoid accidental drops from taps
   const DRAG_THRESHOLD = Math.max(10, Math.floor(squareSize * 0.45));
 
+  // Check if this piece belongs to the player
+  const isPlayerPiece = playerColor && piece.color === playerColor;
+
   const panResponder = useMemo(() => PanResponder.create({
     // Prioritize this view for touch start so overlay grid doesn't steal it
-    onStartShouldSetPanResponder: () => true,
-    onStartShouldSetPanResponderCapture: () => true,
+    // ONLY allow drag/touch if this is the player's piece
+    onStartShouldSetPanResponder: () => isPlayerPiece,
+    onStartShouldSetPanResponderCapture: () => isPlayerPiece,
     // Only treat as drag if there is meaningful movement (distance > threshold)
     onMoveShouldSetPanResponder: (_, g) => {
       const d = Math.hypot(g.dx, g.dy);
@@ -69,7 +73,7 @@ export default function DraggablePiece({ fromSquare, piece, squareSize, startX, 
         onSquarePress(fromSquare);
       }
     },
-  }), [fromSquare, onSquarePress, onDrop, squareSize, startX, startY, orientation, DRAG_THRESHOLD]);
+  }), [fromSquare, onSquarePress, onDrop, squareSize, startX, startY, orientation, DRAG_THRESHOLD, isPlayerPiece]);
 
   const key = `${piece.color === 'w' ? 'w' : 'b'}${piece.type.toUpperCase()}`;
   const img = pieceMap[key];

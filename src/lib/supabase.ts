@@ -16,6 +16,13 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
+    // Suppress auth errors to prevent unhandled rejections
+    flowType: 'pkce',
+  },
+  global: {
+    headers: {
+      'x-client-info': 'chessmax-mobile',
+    },
   },
 });
 
@@ -29,5 +36,19 @@ AppState.addEventListener('change', (state: AppStateStatus) => {
     supabase.auth.startAutoRefresh();
   } else {
     supabase.auth.stopAutoRefresh();
+  }
+});
+
+/**
+ * Global auth error handler
+ * Catches auth errors before they become unhandled rejections
+ */
+supabase.auth.onAuthStateChange((event, session) => {
+  if (event === 'TOKEN_REFRESHED' && !session) {
+    console.warn('[Supabase] Token refresh failed, session cleared');
+  }
+
+  if (event === 'SIGNED_OUT') {
+    console.log('[Supabase] User signed out');
   }
 });

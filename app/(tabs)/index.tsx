@@ -200,13 +200,7 @@ export default function HomeScreen() {
           />
           <Text style={styles.logoText}>ChessMaxx</Text>
         </View>
-        {__DEV__ ? (
-          <TouchableOpacity onPress={resetOnboarding} style={styles.devButton}>
-            <Text style={styles.devText}>DEV</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 36 }} />
-        )}
+        <View style={{ width: 36 }} />
       </View>
 
 
@@ -299,19 +293,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.foreground,
     borderRadius: 2,
   },
-  devButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: colors.border,
-    backgroundColor: colors.card,
-  },
-  devText: {
-    color: colors.textSubtle,
-    fontWeight: '800',
-    fontSize: 12,
-  },
   titleContainer: {
     paddingHorizontal: 16,
     marginBottom: 16,
@@ -343,16 +324,3 @@ const styles = StyleSheet.create({
     fontSize: 16,
   },
 });
-  const resetOnboarding = async () => {
-    try {
-      // Clear all onboarding-related flags to restart the flow
-      await AsyncStorage.multiRemove([
-        'onboarding_seen',
-        '@chessmax_onboarding_seen', // Old key for backwards compatibility
-        '@chessmax_paywall_seen',
-      ]);
-      router.push('/onboarding');
-    } catch (error) {
-      console.error('Error resetting onboarding:', error);
-    }
-  };

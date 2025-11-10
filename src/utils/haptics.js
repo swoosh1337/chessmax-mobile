@@ -25,3 +25,13 @@ export function select() {
   Haptics.selectionAsync?.();
 }
 
+export function warning() {
+  if (!Haptics) return;
+  Haptics.notificationAsync?.(Haptics.NotificationFeedbackType.Warning);
+}
+
+export function hint() {
+  if (!Haptics) return;
+  Haptics.impactAsync?.(Haptics.ImpactFeedbackStyle.Light);
+}
+

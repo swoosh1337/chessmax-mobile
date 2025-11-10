@@ -17,24 +17,49 @@ export const AuthProvider = ({ children }) => {
     // console.log('[AuthContext] Initializing...');
 
     // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      // console.log('[AuthContext] Initial session:', session ? 'Found' : 'None');
-      setSession(session);
-      setUser(session?.user ?? null);
-      setLoading(false);
+    supabase.auth.getSession()
+      .then(({ data: { session }, error }) => {
+        if (error) {
+          console.warn('[AuthContext] Session error:', error.message);
+          // Clear invalid session
+          setSession(null);
+          setUser(null);
+          setClientAuth({ token: null, user: null });
+          setLoading(false);
+          return;
+        }
 
-      // Update API client with session
-      if (session) {
-        setClientAuth({
-          token: session.access_token,
-          user: session.user,
-        });
-      }
-    });
+        // console.log('[AuthContext] Initial session:', session ? 'Found' : 'None');
+        setSession(session);
+        setUser(session?.user ?? null);
+        setLoading(false);
+
+        // Update API client with session
+        if (session) {
+          setClientAuth({
+            token: session.access_token,
+            user: session.user,
+          });
+        }
+      })
+      .catch((error) => {
+        console.error('[AuthContext] Critical session error:', error);
+        // Clear invalid session on any error
+        setSession(null);
+        setUser(null);
+        setClientAuth({ token: null, user: null });
+        setLoading(false);
+      });
 
     // Listen for auth changes
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       // console.log('[AuthContext] Auth state changed:', _event, session ? 'Session active' : 'No session');
+
+      // Handle token refresh errors
+      if (_event === 'TOKEN_REFRESHED' && !session) {
+        console.warn('[AuthContext] Token refresh failed, clearing session');
+      }
+
       setSession(session);
       setUser(session?.user ?? null);
 

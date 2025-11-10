@@ -1,5 +1,6 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Platform } from 'react-native';
+import { useAuth } from './AuthContext';
 
 // Try to import expo-in-app-purchases
 let InAppPurchases: any = null;
@@ -11,6 +12,11 @@ try {
 
 // Check if we're in a native build with IAP support
 const IAP_AVAILABLE = InAppPurchases !== null;
+
+// Developer emails that get lifetime premium access
+const DEVELOPER_EMAILS = [
+  'tazigrigolia@gmail.com',
+];
 
 type Product = any;
 
@@ -44,16 +50,29 @@ interface SubscriptionContextType {
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [isPremium, setIsPremium] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [initialized, setInitialized] = useState(false);
+  const initializingRef = useRef(false);
+
+  // Check if current user is a developer with lifetime access
+  const isDeveloper = user?.email && DEVELOPER_EMAILS.includes(user.email.toLowerCase());
 
   /**
    * Initialize IAP connection and fetch products
    */
   useEffect(() => {
+    // Grant premium access to developers
+    if (isDeveloper) {
+      console.log('[IAP] Developer account detected - granting lifetime premium access');
+      setIsPremium(true);
+      setIsLoading(false);
+      return;
+    }
+
     // If IAP not available (Expo Go without dev build), treat as free user
     if (!IAP_AVAILABLE) {
       console.log('[IAP] Not available - running in Expo Go mode or missing package');
@@ -62,11 +81,30 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return;
     }
 
+    // Skip if already initialized or currently initializing
+    if (initialized || initializingRef.current) {
+      console.log('[IAP] Already initialized or initializing, skipping');
+      return;
+    }
+
     const initIAP = async () => {
+      // Mark as initializing
+      initializingRef.current = true;
+
       try {
         console.log('[IAP] Initializing connection...');
-        await InAppPurchases.connectAsync();
-        console.log('[IAP] Connection initialized');
+
+        // Try to connect (ignore if already connected)
+        try {
+          await InAppPurchases.connectAsync();
+          console.log('[IAP] Connection initialized');
+        } catch (connectErr: any) {
+          if (connectErr.message?.includes('Already connected')) {
+            console.log('[IAP] Already connected, continuing...');
+          } else {
+            throw connectErr;
+          }
+        }
 
         // Fetch available products
         console.log('[IAP] Fetching products:', SUBSCRIPTION_SKUS);
@@ -88,6 +126,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         console.error('[IAP] Init error:', err);
         setError(err.message || 'Failed to initialize purchases');
         setIsLoading(false);
+      } finally {
+        // Mark as no longer initializing
+        initializingRef.current = false;
       }
     };
 
@@ -101,12 +142,17 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         );
       }
     };
-  }, []);
+  }, [isDeveloper]);
 
   /**
    * Check if user has an active subscription
    */
   const checkSubscriptionStatus = useCallback(async () => {
+    // Developers always have premium
+    if (isDeveloper) {
+      return true;
+    }
+
     if (!IAP_AVAILABLE) {
       return false;
     }
@@ -135,7 +181,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       console.error('[IAP] Error checking subscription:', err);
       return false;
     }
-  }, []);
+  }, [isDeveloper]);
 
   /**
    * Purchase a subscription
