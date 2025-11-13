@@ -1,12 +1,10 @@
 import React, { useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { View, Text, StyleSheet, ScrollView, Dimensions, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, useWindowDimensions, Platform } from 'react-native';
 import { router } from 'expo-router';
 import { colors } from '@/src/theme/colors';
 import RatingPromptModal from '@/src/components/RatingPromptModal';
 import { onboardingStorage } from '@/src/utils/storage';
-
-const { width } = Dimensions.get('window');
 
 type SlideKey = 'welcome' | 'precision' | 'progress' | 'leaderboard' | 'done';
 
@@ -44,12 +42,24 @@ const slides: Array<{ key: SlideKey; title: string; text: string; mascot: any }>
 ];
 
 export default function OnboardingScreen() {
+  const { width, height } = useWindowDimensions();
+  const slideWidth = Math.max(width, 320);
+  // Detect iPad: width >= 768px OR Platform.isPad (if available)
+  const isTablet = width >= 768 || (Platform.OS === 'ios' && (Platform as any).isPad === true);
+  const circleSize = isTablet ? Math.min(width * 0.35, 320) : 200;
+  const mascotSize = isTablet ? 168 : 96;
+  
+  // Debug logging
+  if (__DEV__) {
+    console.log('[Onboarding] Device info:', { width, height, isTablet, slideWidth });
+  }
+
   const scrollRef = useRef<ScrollView>(null);
   const [index, setIndex] = useState(0);
   const [showRating, setShowRating] = useState(false);
 
   const onScroll = (e: any) => {
-    const i = Math.round(e.nativeEvent.contentOffset.x / width);
+    const i = Math.round(e.nativeEvent.contentOffset.x / slideWidth);
     if (i !== index) setIndex(i);
   };
 
@@ -90,16 +100,50 @@ export default function OnboardingScreen() {
         scrollEventThrottle={16}
       >
         {slides.map((s, i) => (
-          <View key={i} style={[styles.slide, { width }] }>
-            <Text style={styles.title}>{s.title}</Text>
-            <View style={styles.illustration}>
-              <View style={styles.circle}>
-                {renderCenter(slides[i].key)}
+          <View
+            key={s.key}
+            style={[
+              styles.slide,
+              isTablet && styles.slideTablet,
+              { width: slideWidth, minHeight: height * 0.75 },
+            ]}
+          >
+            {/* iPad: Only show text, NO illustrations or mascots */}
+            {isTablet ? (
+              <View style={[styles.textContainer, styles.textContainerTablet]}>
+                <Text style={[styles.title, styles.titleTablet]}>{s.title}</Text>
+                <Text style={[styles.text, styles.textTablet]}>{s.text}</Text>
               </View>
-            </View>
-            <Text style={styles.text}>{s.text}</Text>
-            {/* Bottom-right mascot */}
-            <Image source={slides[i].mascot} style={styles.mascot} />
+            ) : (
+              /* iPhone: Show text + illustrations + mascot */
+              <>
+                <View style={styles.textContainer}>
+                  <Text style={styles.title}>{s.title}</Text>
+                  <Text style={styles.text}>{s.text}</Text>
+                </View>
+                <View style={styles.illustration}>
+                  <View
+                    style={[
+                      styles.circle,
+                      {
+                        width: circleSize,
+                        height: circleSize,
+                        borderRadius: circleSize / 2,
+                      },
+                    ]}
+                  >
+                    {renderCenter(s.key, isTablet)}
+                  </View>
+                  <Image
+                    source={s.mascot}
+                    style={[
+                      styles.mascot,
+                      { width: mascotSize, height: mascotSize },
+                    ]}
+                  />
+                </View>
+              </>
+            )}
           </View>
         ))}
       </ScrollView>
@@ -130,12 +174,18 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', paddingHorizontal: 16, paddingTop: 12 },
   skip: { color: colors.textSubtle, fontWeight: '600' },
-  slide: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 20 },
-  title: { color: colors.foreground, fontSize: 28, fontWeight: '800', marginTop: 40, textAlign: 'center' },
-  illustration: { marginTop: 40, marginBottom: 20 },
-  circle: { width: 200, height: 200, borderRadius: 100, backgroundColor: colors.card, borderWidth: 2, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
+  slide: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
+  slideTablet: { flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 80 },
+  textContainer: { alignItems: 'center', maxWidth: 420 },
+  textContainerTablet: { alignItems: 'center', maxWidth: 600 },
+  title: { color: colors.foreground, fontSize: 28, fontWeight: '800', marginTop: 32, textAlign: 'center' },
+  titleTablet: { fontSize: 42, textAlign: 'center', marginTop: 24, lineHeight: 48 },
+  illustration: { marginTop: 32, marginBottom: 24, alignItems: 'center', justifyContent: 'center' },
+  illustrationTablet: { marginTop: 48, marginBottom: 32 },
+  circle: { backgroundColor: colors.card, borderWidth: 2, borderColor: colors.border, alignItems: 'center', justifyContent: 'center' },
   mascotHero: { width: 140, height: 140, resizeMode: 'contain' },
-  text: { color: colors.textSubtle, fontSize: 16, textAlign: 'center', paddingHorizontal: 24, marginTop: 6 },
+  text: { color: colors.textSubtle, fontSize: 16, textAlign: 'center', paddingHorizontal: 24, marginTop: 12, lineHeight: 24 },
+  textTablet: { textAlign: 'center', paddingHorizontal: 0, fontSize: 22, lineHeight: 32, marginTop: 16 },
   dotsRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 12 },
   dot: { width: 8, height: 8, borderRadius: 4, backgroundColor: colors.border },
   dotActive: { backgroundColor: colors.primary },
@@ -143,28 +193,40 @@ const styles = StyleSheet.create({
   cta: { backgroundColor: colors.primary, borderRadius: 999, alignItems: 'center', paddingVertical: 14 },
   ctaText: { color: colors.primaryForeground, fontWeight: '800', fontSize: 16 },
   mascot: { position: 'absolute', right: 20, bottom: 28, width: 96, height: 96, borderRadius: 14, opacity: 0.95 },
+  mascotTablet: { position: 'relative', right: undefined, bottom: undefined, marginTop: 24, opacity: 1 },
   // Center illustrations
   boardGrid: { width: 120, height: 120, borderRadius: 8, overflow: 'hidden', borderWidth: 2, borderColor: '#ffffff1f' },
+  boardGridTablet: { width: 160, height: 160 },
   boardRow: { flex: 1, flexDirection: 'row' },
   sqLight: { flex: 1, backgroundColor: '#f0d9b5' },
   sqDark: { flex: 1, backgroundColor: '#b58863' },
   targetRing: { position: 'absolute', width: 160, height: 160, borderRadius: 80, borderWidth: 2, borderColor: '#fbbf24' },
+  targetRingTablet: { width: 220, height: 220, borderRadius: 110 },
   crossHair: { position: 'absolute', width: 2, height: 160, backgroundColor: '#fbbf24' },
+  crossHairTablet: { height: 220 },
   crossHairH: { position: 'absolute', height: 2, width: 160, backgroundColor: '#fbbf24' },
+  crossHairHTablet: { width: 220 },
   progressCard: { width: 160, padding: 14, backgroundColor: '#111', borderRadius: 12, borderWidth: 1, borderColor: colors.border },
+  progressCardTablet: { width: 220, padding: 18 },
   bar: { height: 10, backgroundColor: colors.border, borderRadius: 6, overflow: 'hidden' },
   barFill: { height: '100%', width: '70%', backgroundColor: colors.success },
   trophy: { fontSize: 70 },
+  trophyTablet: { fontSize: 90 },
 });
 
-function renderCenter(key: SlideKey) {
+function renderCenter(key: SlideKey, isTablet: boolean) {
   switch (key) {
     case 'welcome':
-      return <Image source={require('../assets/images/logo_transparent.png')} style={styles.mascotHero} />;
+      return (
+        <Image
+          source={require('../assets/images/logo_transparent.png')}
+          style={[styles.mascotHero, isTablet && { width: 200, height: 200 }]}
+        />
+      );
     case 'precision':
       return (
         <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-          <View style={styles.boardGrid}>
+          <View style={[styles.boardGrid, isTablet && styles.boardGridTablet]}>
             {Array.from({ length: 8 }).map((_, r) => (
               <View key={r} style={styles.boardRow}>
                 {Array.from({ length: 8 }).map((_, c) => (
@@ -173,14 +235,14 @@ function renderCenter(key: SlideKey) {
               </View>
             ))}
           </View>
-          <View style={styles.targetRing} />
-          <View style={[styles.crossHair, { transform: [{ translateX: -1 }] }]} />
-          <View style={[styles.crossHairH, { transform: [{ translateY: -1 }] }]} />
+          <View style={[styles.targetRing, isTablet && styles.targetRingTablet]} />
+          <View style={[styles.crossHair, isTablet && styles.crossHairTablet, { transform: [{ translateX: -1 }] }]} />
+          <View style={[styles.crossHairH, isTablet && styles.crossHairHTablet, { transform: [{ translateY: -1 }] }]} />
         </View>
       );
     case 'progress':
       return (
-        <View style={styles.progressCard}>
+        <View style={[styles.progressCard, isTablet && styles.progressCardTablet]}>
           <Text style={{ color: colors.foreground, fontWeight: '800', marginBottom: 8, textAlign: 'center' }}>Progress</Text>
           <View style={styles.bar}>
             <View style={styles.barFill} />
@@ -191,7 +253,7 @@ function renderCenter(key: SlideKey) {
     case 'leaderboard':
       return (
         <View style={{ alignItems: 'center', justifyContent: 'center' }}>
-          <Text style={[styles.trophy]}>🏆</Text>
+          <Text style={[styles.trophy, isTablet && styles.trophyTablet]}>🏆</Text>
           <Text style={{ color: colors.textSubtle, marginTop: 6 }}>Top Players</Text>
         </View>
       );

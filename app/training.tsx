@@ -603,11 +603,14 @@ export default function TrainingScreen() {
       const legalSquares = legal.map((m: any) => m.to);
       console.log('🎯 Legal moves from', selected, ':', legalSquares);
 
+      console.log('🎯 Checking if', sq, 'is in legalSquares:', legalSquares);
+      console.log('🎯 legalSquares.includes(', sq, '):', legalSquares.includes(sq));
+
       if (legalSquares.includes(sq)) {
-        // console.log('🔥 Attempting move from', selected, 'to', sq);
+        console.log('✅ LEGAL MOVE - Attempting move from', selected, 'to', sq);
         try {
           const move = engine.move({ from: selected, to: sq });
-          // console.log('🔥 Move successful:', move);
+          console.log('✅ Move successful:', move);
           setTick((t) => t + 1); // Update board immediately to show player's move
           const result = applyMove(move);
           if (result.ok) {
@@ -619,8 +622,9 @@ export default function TrainingScreen() {
           console.error('❌ Move failed:', err);
         }
       } else {
-        console.log('🎯 Not a legal target, checking for new piece selection');
-        // Select new piece
+        console.log('❌ NOT A LEGAL TARGET:', sq, 'is not in', legalSquares);
+        console.log('🎯 Piece at target square:', piece);
+        // Select new piece - but ONLY if it's the player's piece
         if (piece && piece.color === playerColor) {
           console.log('🎯 Selecting different piece at', sq);
           // Clear hint when selecting a piece

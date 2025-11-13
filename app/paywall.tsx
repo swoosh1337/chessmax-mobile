@@ -126,9 +126,9 @@ export default function PaywallScreen() {
   };
 
   const ctaLabel = useMemo(() => {
-    if (selected === 'weeklyTrial' && trialEnabled) return 'Try for Free';
-    if (selected === 'weeklyTrial') return 'Continue';
-    return 'Continue';
+    if (selected === 'weeklyTrial' && trialEnabled) return 'Start Free Trial';
+    if (selected === 'weeklyTrial') return 'Subscribe';
+    return 'Subscribe';
   }, [selected, trialEnabled]);
 
   return (
@@ -158,22 +158,29 @@ export default function PaywallScreen() {
         />
         <PlanRow
           active={selected === 'weeklyTrial'}
-          title="3‑Day Trial"
-          subtitle={<Text style={styles.planSmall}>then $0.99 per week</Text>}
-          rightLabel="FREE"
+          title="$0.99 per week"
+          subtitle={<Text style={styles.planSmall}>3-day free trial included</Text>}
           onPress={() => setSelected('weeklyTrial')}
         />
 
-        {/* Trial toggle when weekly selected */}
+        {/* Subscription terms disclosure */}
         {selected === 'weeklyTrial' && (
-          <View style={styles.toggleRow}>
-            <Text style={styles.toggleLabel}>Free Trial Enabled</Text>
-            <Switch
-              value={trialEnabled}
-              onValueChange={setTrialEnabled}
-              thumbColor={trialEnabled ? colors.primaryForeground : '#888'}
-              trackColor={{ false: '#333', true: colors.primary }}
-            />
+          <View style={styles.disclosureBox}>
+            <Text style={styles.disclosureText}>
+              • Free for 3 days, then $0.99 per week{'\n'}
+              • Renews automatically until cancelled{'\n'}
+              • Cancel anytime in App Store settings
+            </Text>
+          </View>
+        )}
+        
+        {selected === 'yearly' && (
+          <View style={styles.disclosureBox}>
+            <Text style={styles.disclosureText}>
+              • $24.99 billed annually{'\n'}
+              • Renews automatically until cancelled{'\n'}
+              • Cancel anytime in App Store settings
+            </Text>
           </View>
         )}
 
@@ -261,8 +268,19 @@ const styles = StyleSheet.create({
   },
   radioDot: { width: 12, height: 12, borderRadius: 6, backgroundColor: colors.primary },
 
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10, paddingHorizontal: 4 },
-  toggleLabel: { color: colors.foreground, fontWeight: '600' },
+  disclosureBox: {
+    marginTop: 12,
+    padding: 12,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  disclosureText: {
+    color: colors.textSubtle,
+    fontSize: 12,
+    lineHeight: 18,
+  },
 
   primaryCta: { marginTop: 16, backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },
   primaryCtaText: { color: colors.primaryForeground, fontWeight: '800' },

@@ -4,6 +4,36 @@ import { supabase } from '../lib/supabase';
 // Complete the WebBrowser session
 WebBrowser.maybeCompleteAuthSession();
 
+function mapAuthError(errorMessage?: string) {
+  if (!errorMessage) {
+    return 'Sign-in failed. Please try again.';
+  }
+
+  const normalized = errorMessage.toLowerCase();
+
+  if (normalized.includes('invalid flow state') || normalized.includes('no valid flow state')) {
+    return 'The sign-in session expired. Please try again.';
+  }
+
+  if (normalized.includes('pkce')) {
+    return 'We could not verify the sign-in session. Please try again.';
+  }
+
+  if (normalized.includes('network')) {
+    return 'Network error. Please check your connection and try again.';
+  }
+
+  return errorMessage;
+}
+
+async function resetLocalAuthState() {
+  try {
+    await supabase.auth.signOut({ scope: 'local' });
+  } catch (err) {
+    console.warn('[Auth] Failed to clear local auth state:', err);
+  }
+}
+
 /**
  * Google Sign-In using Supabase OAuth
  * Opens Safari View Controller (in-app browser) - Apple approved
@@ -27,7 +57,8 @@ export async function signInWithGoogle() {
       console.error('[Google Auth] OAuth error:', error);
       console.error('[Google Auth] Error message:', error.message);
       console.error('[Google Auth] Error details:', JSON.stringify(error, null, 2));
-      return { ok: false, error: error.message };
+      await resetLocalAuthState();
+      return { ok: false, error: mapAuthError(error.message) };
     }
 
     // Open OAuth URL in Safari View Controller (in-app browser)
@@ -62,7 +93,8 @@ export async function signInWithGoogle() {
 
           if (sessionError) {
             console.error('[Google Auth] Code exchange error:', sessionError);
-            return { ok: false, error: sessionError.message };
+            await resetLocalAuthState();
+            return { ok: false, error: mapAuthError(sessionError.message) };
           }
 
           console.log('[Google Auth] Sign-in successful (PKCE)');
@@ -90,7 +122,8 @@ export async function signInWithGoogle() {
 
           if (sessionError) {
             console.error('[Google Auth] Session error:', sessionError);
-            return { ok: false, error: sessionError.message };
+            await resetLocalAuthState();
+            return { ok: false, error: mapAuthError(sessionError.message) };
           }
 
           console.log('[Google Auth] Sign-in successful (implicit)');
@@ -109,18 +142,21 @@ export async function signInWithGoogle() {
         return { ok: false, error: 'User cancelled sign-in' };
       } else {
         console.error('[Google Auth] Unexpected result type:', result.type);
+        await resetLocalAuthState();
         return { ok: false, error: `Unexpected result: ${result.type}` };
       }
     } else {
       console.error('[Google Auth] No OAuth URL received from Supabase');
       console.error('[Google Auth] Supabase response:', JSON.stringify(data, null, 2));
+      await resetLocalAuthState();
       return { ok: false, error: 'Failed to get OAuth URL from Supabase' };
     }
   } catch (error: any) {
     console.error('[Google Auth] Unexpected error:', error);
     console.error('[Google Auth] Error message:', error.message);
     console.error('[Google Auth] Error stack:', error.stack);
-    return { ok: false, error: error.message || 'Google sign-in failed' };
+    await resetLocalAuthState();
+    return { ok: false, error: mapAuthError(error.message) };
   }
 }
 
@@ -144,7 +180,8 @@ export async function signInWithApple() {
 
     if (error) {
       console.error('[Apple Auth] OAuth error:', error);
-      return { ok: false, error: error.message };
+      await resetLocalAuthState();
+      return { ok: false, error: mapAuthError(error.message) };
     }
 
     // Open OAuth URL in Safari View Controller (in-app browser)
@@ -174,7 +211,8 @@ export async function signInWithApple() {
 
           if (sessionError) {
             console.error('[Apple Auth] Code exchange error:', sessionError);
-            return { ok: false, error: sessionError.message };
+            await resetLocalAuthState();
+            return { ok: false, error: mapAuthError(sessionError.message) };
           }
 
           console.log('[Apple Auth] Sign-in successful (PKCE)');
@@ -202,7 +240,8 @@ export async function signInWithApple() {
 
           if (sessionError) {
             console.error('[Apple Auth] Session error:', sessionError);
-            return { ok: false, error: sessionError.message };
+            await resetLocalAuthState();
+            return { ok: false, error: mapAuthError(sessionError.message) };
           }
 
           console.log('[Apple Auth] Sign-in successful (implicit)');
@@ -215,16 +254,19 @@ export async function signInWithApple() {
         }
 
         console.error('[Apple Auth] No code or tokens found in callback URL');
+        await resetLocalAuthState();
         return { ok: false, error: 'Missing authentication data' };
       } else if (result.type === 'cancel') {
         return { ok: false, error: 'User cancelled sign-in' };
       }
     }
 
+    await resetLocalAuthState();
     return { ok: false, error: 'Failed to get OAuth URL' };
   } catch (error: any) {
     console.error('[Apple Auth] Error:', error);
-    return { ok: false, error: error.message || 'Apple sign-in failed' };
+    await resetLocalAuthState();
+    return { ok: false, error: mapAuthError(error.message) };
   }
 }
 
