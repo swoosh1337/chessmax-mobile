@@ -4,12 +4,12 @@ import { View, Text, StyleSheet, TouchableOpacity, Image, Switch, Linking, Activ
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/src/theme/colors';
 import { router } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useSubscription } from '@/src/context/SubscriptionContext';
-
-const PAYWALL_SEEN_KEY = '@chessmax_paywall_seen';
+import { useAuth } from '@/src/context/AuthContext';
+import { supabase } from '@/src/lib/supabase';
 
 export default function PaywallScreen() {
+  const { user } = useAuth();
   const { products, purchaseSubscription, restorePurchases, isLoading } = useSubscription();
   const [selected, setSelected] = useState<'yearly' | 'weeklyTrial'>('weeklyTrial');
   const [trialEnabled, setTrialEnabled] = useState(true);
@@ -17,7 +17,35 @@ export default function PaywallScreen() {
 
   const continueToApp = async () => {
     try {
-      await AsyncStorage.setItem(PAYWALL_SEEN_KEY, '1');
+      // Mark paywall as seen in Supabase (per-user)
+      if (user) {
+        const { error } = await supabase
+          .from('user_profiles')
+          .update({ paywall_seen: true })
+          .eq('id', user.id);
+
+        if (error) {
+          console.error('[Paywall] Error saving paywall status:', error);
+          // If profile doesn't exist, create it
+          if (error.code === 'PGRST116') {
+            const { error: createError } = await supabase
+              .from('user_profiles')
+              .insert({
+                id: user.id,
+                username: null,
+                total_xp: 0,
+                weekly_xp: 0,
+                level: 1,
+                seen_onboarding: true, // They've seen onboarding to get here
+                paywall_seen: true,
+              });
+            
+            if (createError) {
+              console.error('[Paywall] Error creating profile:', createError);
+            }
+          }
+        }
+      }
       router.replace('/(tabs)');
     } catch (error) {
       console.error('[Paywall] Error saving paywall status:', error);
@@ -26,6 +54,22 @@ export default function PaywallScreen() {
   };
 
   const handlePurchase = async () => {
+    // Check if user is authenticated
+    if (!user) {
+      Alert.alert(
+        'Sign In Required',
+        'Please sign in to get premium access. You need an account to purchase a subscription.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { 
+            text: 'Sign In', 
+            onPress: () => router.push('/auth')
+          }
+        ]
+      );
+      return;
+    }
+
     try {
       setPurchasing(true);
 
@@ -163,27 +207,6 @@ export default function PaywallScreen() {
           onPress={() => setSelected('weeklyTrial')}
         />
 
-        {/* Subscription terms disclosure */}
-        {selected === 'weeklyTrial' && (
-          <View style={styles.disclosureBox}>
-            <Text style={styles.disclosureText}>
-              • Free for 3 days, then $0.99 per week{'\n'}
-              • Renews automatically until cancelled{'\n'}
-              • Cancel anytime in App Store settings
-            </Text>
-          </View>
-        )}
-        
-        {selected === 'yearly' && (
-          <View style={styles.disclosureBox}>
-            <Text style={styles.disclosureText}>
-              • $24.99 billed annually{'\n'}
-              • Renews automatically until cancelled{'\n'}
-              • Cancel anytime in App Store settings
-            </Text>
-          </View>
-        )}
-
         {/* CTA */}
         <TouchableOpacity
           style={[styles.primaryCta, (purchasing || isLoading) && styles.ctaDisabled]}
@@ -196,6 +219,23 @@ export default function PaywallScreen() {
             <Text style={styles.primaryCtaText}>{ctaLabel}</Text>
           )}
         </TouchableOpacity>
+
+        {/* Subscription terms disclosure - Immediately after button per Apple requirements */}
+        {selected === 'weeklyTrial' && (
+          <View style={styles.disclosureBox}>
+            <Text style={styles.disclosureText}>
+              After your 3-day free trial, your subscription will automatically renew for $0.99 per week until you cancel. Cancel anytime in App Store settings.
+            </Text>
+          </View>
+        )}
+
+        {selected === 'yearly' && (
+          <View style={styles.disclosureBox}>
+            <Text style={styles.disclosureText}>
+              Your subscription will automatically renew for $24.99 per year until you cancel. Cancel anytime in App Store settings.
+            </Text>
+          </View>
+        )}
 
         {/* Continue as free user */}
         <TouchableOpacity onPress={continueToApp} style={styles.freeLink}>
@@ -270,16 +310,17 @@ const styles = StyleSheet.create({
 
   disclosureBox: {
     marginTop: 12,
-    padding: 12,
+    padding: 14,
     backgroundColor: colors.background,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: colors.border,
   },
   disclosureText: {
-    color: colors.textSubtle,
-    fontSize: 12,
-    lineHeight: 18,
+    color: colors.foreground,
+    fontSize: 13,
+    lineHeight: 20,
+    textAlign: 'center',
   },
 
   primaryCta: { marginTop: 16, backgroundColor: colors.primary, paddingVertical: 14, borderRadius: 12, alignItems: 'center' },

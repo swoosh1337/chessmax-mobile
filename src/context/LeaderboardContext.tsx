@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
+import { useAuth } from './AuthContext';
 
 export interface UserProfile {
   id: string;
@@ -40,6 +41,7 @@ interface LeaderboardContextType {
 const LeaderboardContext = createContext<LeaderboardContextType | undefined>(undefined);
 
 export function LeaderboardProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [data, setData] = useState<LeaderboardData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,19 +58,21 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Fetch all-time leaderboard (top 100)
+      // Fetch all-time leaderboard (top 100) - only users who have played (XP > 0)
       const { data: allTimeData, error: allTimeError } = await supabase
         .from('user_profiles')
         .select('id, username, total_xp, weekly_xp, level')
+        .gt('total_xp', 0)
         .order('total_xp', { ascending: false })
         .limit(100);
 
       if (allTimeError) throw allTimeError;
 
-      // Fetch weekly leaderboard (top 100)
+      // Fetch weekly leaderboard (top 100) - only users who have played this week (weekly_xp > 0)
       const { data: weeklyData, error: weeklyError } = await supabase
         .from('user_profiles')
         .select('id, username, total_xp, weekly_xp, level')
+        .gt('weekly_xp', 0)
         .order('weekly_xp', { ascending: false })
         .limit(100);
 
@@ -145,10 +149,11 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
         const weeklyRank = weeklyWithRanks.findIndex(p => p.id === currentUserProfile.id);
 
         if (allTimeRank === -1) {
-          // User not in top 100, calculate their actual rank
+          // User not in top 100, calculate their actual rank (excluding users with 0 XP)
           const { count } = await supabase
             .from('user_profiles')
             .select('*', { count: 'exact', head: true })
+            .gt('total_xp', 0)
             .gt('total_xp', currentUserProfile.total_xp);
 
           currentUserProfile.rank = (count || 0) + 1;
@@ -250,6 +255,16 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
       setSubscription(null);
     }
   }, [subscription, fetchLeaderboard]);
+
+  // Clear cache and refetch when user changes (sign in/out)
+  useEffect(() => {
+    // When user changes, clear cached data and refetch
+    setData(null);
+    if (user) {
+      // Only refetch if user is authenticated
+      fetchLeaderboard();
+    }
+  }, [user?.id, fetchLeaderboard]); // Refetch when user.id changes
 
   // Cleanup subscription on unmount
   useEffect(() => {

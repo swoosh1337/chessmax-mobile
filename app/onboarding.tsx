@@ -108,19 +108,32 @@ export default function OnboardingScreen() {
               { width: slideWidth, minHeight: height * 0.75 },
             ]}
           >
-            {/* iPad: Only show text, NO illustrations or mascots */}
+            {/* iPad: Show title, illustration, and text with proper spacing */}
             {isTablet ? (
-              <View style={[styles.textContainer, styles.textContainerTablet]}>
+              <View style={styles.slideContentTablet}>
                 <Text style={[styles.title, styles.titleTablet]}>{s.title}</Text>
-                <Text style={[styles.text, styles.textTablet]}>{s.text}</Text>
+                <View style={[styles.illustration, styles.illustrationTablet]}>
+                  <View
+                    style={[
+                      styles.circle,
+                      {
+                        width: circleSize,
+                        height: circleSize,
+                        borderRadius: circleSize / 2,
+                      },
+                    ]}
+                  >
+                    {renderCenter(s.key, true)}
+                  </View>
+                </View>
+                <View style={styles.textContainerTablet}>
+                  <Text style={[styles.text, styles.textTablet]}>{s.text}</Text>
+                </View>
               </View>
             ) : (
-              /* iPhone: Show text + illustrations + mascot */
+              /* iPhone: Original layout - Title → Illustration → Text → Mascot (absolutely positioned) */
               <>
-                <View style={styles.textContainer}>
-                  <Text style={styles.title}>{s.title}</Text>
-                  <Text style={styles.text}>{s.text}</Text>
-                </View>
+                <Text style={styles.title}>{s.title}</Text>
                 <View style={styles.illustration}>
                   <View
                     style={[
@@ -132,16 +145,17 @@ export default function OnboardingScreen() {
                       },
                     ]}
                   >
-                    {renderCenter(s.key, isTablet)}
+                    {renderCenter(s.key, false)}
                   </View>
-                  <Image
-                    source={s.mascot}
-                    style={[
-                      styles.mascot,
-                      { width: mascotSize, height: mascotSize },
-                    ]}
-                  />
                 </View>
+                <Text style={styles.text}>{s.text}</Text>
+                <Image
+                  source={s.mascot}
+                  style={[
+                    styles.mascot,
+                    { width: mascotSize, height: mascotSize },
+                  ]}
+                />
               </>
             )}
           </View>
@@ -176,6 +190,13 @@ const styles = StyleSheet.create({
   skip: { color: colors.textSubtle, fontWeight: '600' },
   slide: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: 24 },
   slideTablet: { flexDirection: 'column', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 80 },
+  slideContentTablet: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 80,
+    gap: 24
+  },
   textContainer: { alignItems: 'center', maxWidth: 420 },
   textContainerTablet: { alignItems: 'center', maxWidth: 600 },
   title: { color: colors.foreground, fontSize: 28, fontWeight: '800', marginTop: 32, textAlign: 'center' },

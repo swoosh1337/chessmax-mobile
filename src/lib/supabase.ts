@@ -16,8 +16,8 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
-    // Suppress auth errors to prevent unhandled rejections
-    flowType: 'pkce',
+    // Use implicit flow for React Native (PKCE has issues with WebCrypto API)
+    flowType: 'implicit',
   },
   global: {
     headers: {

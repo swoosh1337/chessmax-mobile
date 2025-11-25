@@ -391,6 +391,8 @@ export default function TrainingScreen() {
                 total_xp: 0,
                 weekly_xp: 0,
                 level: 1,
+                seen_onboarding: false,
+                paywall_seen: false,
               });
 
             if (createError) {

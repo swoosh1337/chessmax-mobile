@@ -80,7 +80,7 @@ export default function DraggablePiece({ fromSquare, piece, squareSize, startX, 
 
   return (
     <View
-      pointerEvents="box-only"
+      pointerEvents={isPlayerPiece ? "box-only" : "none"}
       {...panResponder.panHandlers}
       style={{
         position: 'absolute',

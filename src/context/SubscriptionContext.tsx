@@ -1,24 +1,27 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
 import { Platform } from 'react-native';
 import { useAuth } from './AuthContext';
+import { IAPAdapter, Product } from '../services/iap/types';
+import { RevenueCatAdapter } from '../services/iap/RevenueCatAdapter';
+import { StoreKitAdapter } from '../services/iap/StoreKitAdapter';
 
-// Try to import expo-in-app-purchases
-let InAppPurchases: any = null;
-try {
-  InAppPurchases = require('expo-in-app-purchases');
-} catch (e) {
-  console.log('[IAP] expo-in-app-purchases not available (Expo Go). IAP features disabled.');
+// Define a minimal User interface since AuthContext is JS
+interface User {
+  id: string;
+  email?: string;
 }
 
-// Check if we're in a native build with IAP support
-const IAP_AVAILABLE = InAppPurchases !== null;
+interface AuthContextType {
+  user: User | null;
+}
 
 // Developer emails that get lifetime premium access
+// Set DISABLE_DEVELOPER_ACCESS=true in environment to disable for testing
+const DISABLE_DEVELOPER_ACCESS = process.env.EXPO_PUBLIC_DISABLE_DEVELOPER_ACCESS === 'true';
+
 const DEVELOPER_EMAILS = [
   'tazigrigolia@gmail.com',
 ];
-
-type Product = any;
 
 // Product IDs - these must match what you create in App Store Connect
 const SUBSCRIPTION_SKUS = Platform.select({
@@ -35,6 +38,7 @@ interface SubscriptionContextType {
   // Subscription state
   isPremium: boolean;
   isLoading: boolean;
+  usingFallback: boolean;
 
   // Available products
   products: Product[];
@@ -50,22 +54,39 @@ interface SubscriptionContextType {
 const SubscriptionContext = createContext<SubscriptionContextType | undefined>(undefined);
 
 export function SubscriptionProvider({ children }: { children: React.ReactNode }) {
-  const { user } = useAuth();
+  const { user } = useAuth() as AuthContextType;
   const [isPremium, setIsPremium] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [products, setProducts] = useState<Product[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [initialized, setInitialized] = useState(false);
+  const [usingFallback, setUsingFallback] = useState(false);
+
+  const adapterRef = useRef<IAPAdapter | null>(null);
   const initializingRef = useRef(false);
 
   // Check if current user is a developer with lifetime access
-  const isDeveloper = user?.email && DEVELOPER_EMAILS.includes(user.email.toLowerCase());
+  const isDeveloper = !DISABLE_DEVELOPER_ACCESS && user?.email && DEVELOPER_EMAILS.includes(user.email.toLowerCase());
 
   /**
    * Initialize IAP connection and fetch products
    */
   useEffect(() => {
-    // Grant premium access to developers
+    // Reset state when user changes
+    console.log('[IAP] User changed, resetting subscription state');
+    setIsPremium(false);
+    setIsLoading(true);
+    initializingRef.current = false;
+    adapterRef.current = null;
+
+    // Guest users
+    if (!user) {
+      console.log('[IAP] Guest user - no premium access');
+      setIsPremium(false);
+      setIsLoading(false);
+      return;
+    }
+
+    // Developer access
     if (isDeveloper) {
       console.log('[IAP] Developer account detected - granting lifetime premium access');
       setIsPremium(true);
@@ -73,231 +94,117 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
       return;
     }
 
-    // If IAP not available (Expo Go without dev build), treat as free user
-    if (!IAP_AVAILABLE) {
-      console.log('[IAP] Not available - running in Expo Go mode or missing package');
-      setIsPremium(false);
-      setIsLoading(false);
-      return;
-    }
-
-    // Skip if already initialized or currently initializing
-    if (initialized || initializingRef.current) {
-      console.log('[IAP] Already initialized or initializing, skipping');
-      return;
-    }
+    if (initializingRef.current) return;
 
     const initIAP = async () => {
-      // Mark as initializing
       initializingRef.current = true;
-
       try {
-        console.log('[IAP] Initializing connection...');
+        console.log('[IAP] Initializing...');
 
-        // Try to connect (ignore if already connected)
-        try {
-          await InAppPurchases.connectAsync();
-          console.log('[IAP] Connection initialized');
-        } catch (connectErr: any) {
-          if (connectErr.message?.includes('Already connected')) {
-            console.log('[IAP] Already connected, continuing...');
+        // Try RevenueCat first
+        const rcAdapter = new RevenueCatAdapter();
+        const rcInitialized = await rcAdapter.initialize();
+
+        if (rcInitialized) {
+          console.log('[IAP] Using RevenueCat adapter');
+          adapterRef.current = rcAdapter;
+          setUsingFallback(false);
+        } else {
+          console.warn('[IAP] RevenueCat failed to initialize, falling back to StoreKit');
+          const skAdapter = new StoreKitAdapter();
+          const skInitialized = await skAdapter.initialize();
+
+          if (skInitialized) {
+            console.log('[IAP] Using StoreKit fallback adapter');
+            adapterRef.current = skAdapter;
+            setUsingFallback(true);
           } else {
-            throw connectErr;
+            throw new Error('All IAP adapters failed to initialize');
           }
         }
 
-        // Fetch available products
-        console.log('[IAP] Fetching products:', SUBSCRIPTION_SKUS);
-        const productsResponse = await InAppPurchases.getProductsAsync(SUBSCRIPTION_SKUS);
+        if (adapterRef.current) {
+          // Fetch products
+          console.log('[IAP] Fetching products:', SUBSCRIPTION_SKUS);
+          const fetchedProducts = await adapterRef.current.getProducts(SUBSCRIPTION_SKUS);
+          setProducts(fetchedProducts);
+          console.log('[IAP] Products fetched:', fetchedProducts.length);
 
-        if (productsResponse && productsResponse.responseCode === InAppPurchases.IAPResponseCode.OK) {
-          console.log('[IAP] Products fetched:', productsResponse.results);
-          setProducts(productsResponse.results || []);
-        } else {
-          console.warn('[IAP] Failed to fetch products:', productsResponse?.responseCode);
+          // Check status
+          const hasActiveSub = await adapterRef.current.getSubscriptionStatus(SUBSCRIPTION_SKUS);
+          console.log('[IAP] Has active subscription:', hasActiveSub);
+          setIsPremium(hasActiveSub);
         }
 
-        // Check existing purchases
-        await checkSubscriptionStatus();
-
-        setInitialized(true);
         setIsLoading(false);
       } catch (err: any) {
         console.error('[IAP] Init error:', err);
         setError(err.message || 'Failed to initialize purchases');
         setIsLoading(false);
       } finally {
-        // Mark as no longer initializing
         initializingRef.current = false;
       }
     };
 
     initIAP();
-
-    // Cleanup
-    return () => {
-      if (InAppPurchases && initialized) {
-        InAppPurchases.disconnectAsync().catch((e: any) =>
-          console.warn('[IAP] Disconnect error:', e)
-        );
-      }
-    };
-  }, [isDeveloper]);
-
-  /**
-   * Check if user has an active subscription
-   */
-  const checkSubscriptionStatus = useCallback(async () => {
-    // Developers always have premium
-    if (isDeveloper) {
-      return true;
-    }
-
-    if (!IAP_AVAILABLE) {
-      return false;
-    }
-
-    try {
-      console.log('[IAP] Checking subscription status...');
-      const history = await InAppPurchases.getPurchaseHistoryAsync();
-
-      if (!history || history.responseCode !== InAppPurchases.IAPResponseCode.OK) {
-        console.log('[IAP] No purchase history available');
-        return false;
-      }
-
-      console.log('[IAP] Purchase history:', history.results?.length || 0, 'purchases');
-
-      // Check if any purchase is for our subscription products
-      const hasActiveSub = history.results?.some((purchase: any) => {
-        return SUBSCRIPTION_SKUS.includes(purchase.productId);
-      }) || false;
-
-      console.log('[IAP] Has active subscription:', hasActiveSub);
-      setIsPremium(hasActiveSub);
-
-      return hasActiveSub;
-    } catch (err) {
-      console.error('[IAP] Error checking subscription:', err);
-      return false;
-    }
-  }, [isDeveloper]);
+  }, [user?.id, isDeveloper]);
 
   /**
    * Purchase a subscription
    */
-  const purchaseSubscriptionFn = useCallback(async (sku: string) => {
-    if (!IAP_AVAILABLE) {
-      throw new Error('In-app purchases not available. Please use a development build.');
-    }
+  const purchaseSubscription = useCallback(async (sku: string) => {
+    if (!user) throw new Error('You must be signed in to purchase.');
+    if (!adapterRef.current) throw new Error('IAP not initialized');
 
     try {
       setError(null);
-      console.log('[IAP] Starting purchase for:', sku);
+      console.log('[IAP] Purchasing:', sku);
 
-      // Verify product exists
-      const productsResponse = await InAppPurchases.getProductsAsync([sku]);
+      await adapterRef.current.purchase(sku);
 
-      if (!productsResponse || productsResponse.responseCode !== InAppPurchases.IAPResponseCode.OK) {
-        throw new Error('Unable to connect to the App Store. Please try again.');
-      }
-
-      if (!productsResponse.results || productsResponse.results.length === 0) {
-        throw new Error('Product not found. Please check your configuration.');
-      }
-
-      console.log('[IAP] Product found, initiating purchase...');
-
-      // Initiate purchase
-      await InAppPurchases.purchaseItemAsync(sku);
-
-      console.log('[IAP] Purchase initiated, polling for completion...');
-
-      // Poll purchase history until we find the purchase (max 30 seconds)
-      const maxAttempts = 30;
-      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
-        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
-
-        try {
-          const history = await InAppPurchases.getPurchaseHistoryAsync();
-
-          if (history && history.responseCode === InAppPurchases.IAPResponseCode.OK && history.results) {
-            const purchase = history.results.find((p: any) => p.productId === sku);
-
-            if (purchase) {
-              console.log('[IAP] ✅ Purchase found, processing...');
-
-              // Finish the transaction
-              if (!purchase.acknowledged) {
-                await InAppPurchases.finishTransactionAsync(purchase, false);
-                console.log('[IAP] Transaction finished');
-              }
-
-              // Update premium status
-              setIsPremium(true);
-              return;
-            }
-          }
-        } catch (pollError) {
-          console.error('[IAP] Error polling purchase history:', pollError);
-        }
-      }
-
-      // Timeout after 30 seconds
-      throw new Error('Purchase timeout. If you completed the purchase, please use "Restore Purchases".');
+      // If purchase successful (no error thrown), update status
+      // Some adapters might need a re-check, but usually purchase returns success
+      setIsPremium(true);
+      console.log('[IAP] Purchase successful');
     } catch (err: any) {
       console.error('[IAP] Purchase error:', err);
-
-      // Don't show error for user cancellation
-      if (err.code !== 'E_USER_CANCELLED') {
+      if (err.message !== 'User cancelled') {
         setError(err.message || 'Purchase failed');
       }
-
       throw err;
     }
-  }, []);
+  }, [user]);
 
   /**
    * Restore previous purchases
    */
   const restorePurchases = useCallback(async () => {
-    if (!IAP_AVAILABLE) {
-      throw new Error('In-app purchases not available. Please use a development build.');
-    }
+    if (!adapterRef.current) throw new Error('IAP not initialized');
 
     try {
       setError(null);
       console.log('[IAP] Restoring purchases...');
 
-      const history = await InAppPurchases.getPurchaseHistoryAsync();
+      const restored = await adapterRef.current.restore();
+      console.log('[IAP] Restored:', restored.length);
 
-      if (!history || history.responseCode !== InAppPurchases.IAPResponseCode.OK) {
-        throw new Error('Unable to connect to the App Store. Please try again.');
+      if (restored.length > 0) {
+        // Verify if any restored purchase matches our SKUs
+        // This logic depends on the adapter's restore implementation returning relevant items
+        // For simplicity, if we get anything back, we re-check status or assume valid if it matches known SKUs
+
+        // Ideally we should check against SUBSCRIPTION_SKUS
+        const hasValidRestore = restored.some(p => SUBSCRIPTION_SKUS.includes(p.productId));
+
+        if (hasValidRestore) {
+          setIsPremium(true);
+          console.log('[IAP] Restore successful, premium granted');
+        } else {
+          throw new Error('No active subscriptions found to restore');
+        }
+      } else {
+        throw new Error('No purchases found to restore');
       }
-
-      if (!history.results || history.results.length === 0) {
-        setError('No previous purchases found');
-        throw new Error('No previous purchases found');
-      }
-
-      console.log('[IAP] Found', history.results.length, 'previous purchase(s)');
-
-      // Check if any purchase is for our subscription products
-      const subscriptionPurchases = history.results.filter((purchase: any) =>
-        SUBSCRIPTION_SKUS.includes(purchase.productId)
-      );
-
-      if (subscriptionPurchases.length === 0) {
-        setError('No subscription purchases found');
-        throw new Error('No subscription purchases found');
-      }
-
-      console.log('[IAP] Found', subscriptionPurchases.length, 'subscription purchase(s)');
-
-      // Update premium status
-      setIsPremium(true);
-
-      console.log('[IAP] ✅ Purchases restored successfully');
     } catch (err: any) {
       console.error('[IAP] Restore error:', err);
       setError(err.message || 'Failed to restore purchases');
@@ -308,8 +215,9 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
   const value: SubscriptionContextType = {
     isPremium,
     isLoading,
+    usingFallback,
     products,
-    purchaseSubscription: purchaseSubscriptionFn,
+    purchaseSubscription,
     restorePurchases,
     error,
   };

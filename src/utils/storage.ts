@@ -1,60 +1,127 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../lib/supabase';
 
 /**
  * Storage keys
  */
 const KEYS = {
-  ONBOARDING_SEEN: 'onboarding_seen',
   HAS_RATED: 'has_rated',
   VARIATIONS_COMPLETED: 'variations_completed',
   LAST_RATING_PROMPT: 'last_rating_prompt',
 };
 
 /**
- * Onboarding tracking
+ * Onboarding tracking - Now stored in Supabase user_profiles table
  */
 export const onboardingStorage = {
   /**
-   * Check if user has seen onboarding
+   * Check if user has seen onboarding (from Supabase)
    */
   async hasSeenOnboarding(): Promise<boolean> {
     try {
-      const value = await AsyncStorage.getItem(KEYS.ONBOARDING_SEEN);
-      const result = value === 'true';
-      // console.log('[Storage] hasSeenOnboarding:', result, 'raw value:', value);
-      return result;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return false; // Not logged in, show onboarding
+      }
+
+      const { data: profile, error } = await supabase
+        .from('user_profiles')
+        .select('seen_onboarding')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('[Onboarding] Error checking onboarding status:', error);
+        // If profile doesn't exist, create it with seen_onboarding = false
+        if (error.code === 'PGRST116') {
+          const { error: createError } = await supabase
+            .from('user_profiles')
+            .insert({
+              id: user.id,
+              username: null,
+              total_xp: 0,
+              weekly_xp: 0,
+              level: 1,
+              seen_onboarding: false,
+              paywall_seen: false,
+            });
+          
+          if (createError) {
+            console.error('[Onboarding] Error creating profile:', createError);
+          }
+        }
+        return false; // Default to showing onboarding on error
+      }
+
+      return profile?.seen_onboarding ?? false;
     } catch (error) {
-      console.error('[Storage] Error checking onboarding status:', error);
-      return false;
+      console.error('[Onboarding] Error checking onboarding status:', error);
+      return false; // Default to showing onboarding on error
     }
   },
 
   /**
-   * Mark onboarding as seen
+   * Mark onboarding as seen (update Supabase)
    */
   async markOnboardingSeen(): Promise<void> {
     try {
-      // console.log('[Storage] BEFORE marking onboarding as seen');
-      await AsyncStorage.setItem(KEYS.ONBOARDING_SEEN, 'true');
-      // console.log('[Storage] AFTER AsyncStorage.setItem');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        console.warn('[Onboarding] Cannot mark onboarding as seen: user not authenticated');
+        return;
+      }
 
-      // Verify it was saved
-      // const check = await AsyncStorage.getItem(KEYS.ONBOARDING_SEEN);
-      // console.log('[Storage] Verification - onboarding value:', check);
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ seen_onboarding: true })
+        .eq('id', user.id);
+
+      if (error) {
+        console.error('[Onboarding] Error marking onboarding as seen:', error);
+        // If profile doesn't exist, create it with seen_onboarding = true
+        if (error.code === 'PGRST116') {
+          const { error: createError } = await supabase
+            .from('user_profiles')
+            .insert({
+              id: user.id,
+              username: null,
+              total_xp: 0,
+              weekly_xp: 0,
+              level: 1,
+              seen_onboarding: true,
+              paywall_seen: false, // They haven't seen paywall yet
+            });
+          
+          if (createError) {
+            console.error('[Onboarding] Error creating profile:', createError);
+          }
+        }
+      }
     } catch (error) {
-      console.error('[Storage] Error marking onboarding as seen:', error);
+      console.error('[Onboarding] Error marking onboarding as seen:', error);
     }
   },
 
   /**
-   * Reset onboarding status (for testing)
+   * Reset onboarding status (for testing) - updates Supabase
    */
   async resetOnboarding(): Promise<void> {
     try {
-      await AsyncStorage.removeItem(KEYS.ONBOARDING_SEEN);
-      // console.log('[Storage] Onboarding status reset');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        return;
+      }
+
+      const { error } = await supabase
+        .from('user_profiles')
+        .update({ seen_onboarding: false })
+        .eq('id', user.id);
+
+      if (error) {
+        console.error('[Onboarding] Error resetting onboarding:', error);
+      }
     } catch (error) {
-      console.error('[Storage] Error resetting onboarding:', error);
+      console.error('[Onboarding] Error resetting onboarding:', error);
     }
   },
 };

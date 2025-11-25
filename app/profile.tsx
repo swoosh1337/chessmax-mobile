@@ -13,6 +13,7 @@ import TrainingCalendar from '@/src/components/TrainingCalendar';
 import TrainingStatistics from '@/src/components/TrainingStatistics';
 import ProfileStatsSkeleton from '@/src/components/ProfileStatsSkeleton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { onboardingStorage, ratingStorage } from '@/src/utils/storage';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
@@ -95,6 +96,8 @@ export default function ProfileScreen() {
               total_xp: 0,
               weekly_xp: 0,
               level: 1,
+              seen_onboarding: false,
+              paywall_seen: false,
             });
 
           if (createError) {
@@ -206,14 +209,24 @@ export default function ProfileScreen() {
           onPress: async () => {
             setDeleting(true);
             try {
-              // Delete user account via Supabase Admin API
-              // Note: You'll need to create a server-side endpoint for this
-              // For now, we'll use the auth.admin.deleteUser method if available
-
+              // IMPORTANT: Delete account FIRST while still authenticated
+              // The SQL function requires authentication to work
               const { error } = await supabase.rpc('delete_user_account');
 
               if (error) {
                 throw error;
+              }
+
+              // After successful deletion, clear local storage (rating data, etc.)
+              // Note: onboarding status is stored in Supabase and will be deleted with the account
+              // so we don't need to clear it separately
+              try {
+                await ratingStorage.resetRatingData();
+                // Clear all AsyncStorage data for this app (comprehensive cleanup)
+                await AsyncStorage.clear();
+              } catch (storageError) {
+                // Log but don't fail - account is already deleted
+                console.warn('Error clearing local storage:', storageError);
               }
 
               // Sign out after successful deletion
@@ -354,39 +367,40 @@ export default function ProfileScreen() {
                     </>
                   )}
                 </View>
-
-                {/* Training Stats Tabs */}
-                <View style={styles.statsTabsContainer}>
-                  <View style={styles.statsTabs}>
-                    <TouchableOpacity
-                      style={[styles.statsTab, showStats === 'calendar' && styles.statsTabActive]}
-                      onPress={() => setShowStats('calendar')}
-                    >
-                      <Text style={[styles.statsTabText, showStats === 'calendar' && styles.statsTabTextActive]}>
-                        Calendar
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.statsTab, showStats === 'stats' && styles.statsTabActive]}
-                      onPress={() => setShowStats('stats')}
-                    >
-                      <Text style={[styles.statsTabText, showStats === 'stats' && styles.statsTabTextActive]}>
-                        Statistics
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Tab Content */}
-                  <View style={styles.statsContent}>
-                    {showStats === 'calendar' ? (
-                      <TrainingCalendar />
-                    ) : (
-                      <TrainingStatistics />
-                    )}
-                  </View>
-                </View>
               </>
             ) : null}
+
+            {/* Training Stats Tabs - Always show, even when userProfile is loading */}
+            {/* The TrainingStatistics component handles its own loading state */}
+            <View style={styles.statsTabsContainer}>
+              <View style={styles.statsTabs}>
+                <TouchableOpacity
+                  style={[styles.statsTab, showStats === 'calendar' && styles.statsTabActive]}
+                  onPress={() => setShowStats('calendar')}
+                >
+                  <Text style={[styles.statsTabText, showStats === 'calendar' && styles.statsTabTextActive]}>
+                    Calendar
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={[styles.statsTab, showStats === 'stats' && styles.statsTabActive]}
+                  onPress={() => setShowStats('stats')}
+                >
+                  <Text style={[styles.statsTabText, showStats === 'stats' && styles.statsTabTextActive]}>
+                    Statistics
+                  </Text>
+                </TouchableOpacity>
+              </View>
+
+              {/* Tab Content */}
+              <View style={styles.statsContent}>
+                {showStats === 'calendar' ? (
+                  <TrainingCalendar />
+                ) : (
+                  <TrainingStatistics />
+                )}
+              </View>
+            </View>
 
             {/* Username */}
             <View style={styles.infoCard}>
@@ -465,25 +479,47 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        <View style={styles.actions}>
-          <TouchableOpacity
-            style={styles.btnSignOut}
-            onPress={handleSignOut}
-            disabled={!user}
-          >
-            <Text style={styles.btnSignOutText}>Sign Out</Text>
-          </TouchableOpacity>
+        {/* Show action buttons based on authentication status */}
+        {user ? (
+          <View style={styles.actions}>
+            {/* Show "Get Premium" button only for authenticated free users */}
+            {!isPremium && (
+              <TouchableOpacity
+                style={styles.btnGetPremium}
+                onPress={() => router.push('/paywall')}
+              >
+                <Text style={styles.btnGetPremiumText}>Get Premium</Text>
+              </TouchableOpacity>
+            )}
 
-          <TouchableOpacity
-            style={styles.btnDelete}
-            onPress={handleDeleteAccount}
-            disabled={!user || deleting}
-          >
-            <Text style={styles.btnDeleteText}>
-              {deleting ? 'Deleting...' : 'Delete Account'}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            <TouchableOpacity
+              style={styles.btnSignOut}
+              onPress={handleSignOut}
+            >
+              <Text style={styles.btnSignOutText}>Sign Out</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={styles.btnDelete}
+              onPress={handleDeleteAccount}
+              disabled={deleting}
+            >
+              <Text style={styles.btnDeleteText}>
+                {deleting ? 'Deleting...' : 'Delete Account'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <View style={styles.actions}>
+            {/* Guest users: Only show Sign In button */}
+            <TouchableOpacity
+              style={styles.btnSignIn}
+              onPress={() => router.push('/auth')}
+            >
+              <Text style={styles.btnSignInText}>Sign In</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );
@@ -724,6 +760,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnDeleteText: { color: '#dc2626', fontWeight: '700', fontSize: 16 },
+  btnGetPremium: {
+    backgroundColor: colors.primary,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  btnGetPremiumText: { color: colors.background, fontWeight: '700', fontSize: 16 },
+  btnSignIn: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    height: 56,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  btnSignInText: { color: colors.foreground, fontWeight: '700', fontSize: 16 },
   statsTabsContainer: {
     marginBottom: 12,
   },

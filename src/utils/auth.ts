@@ -67,6 +67,7 @@ export async function signInWithGoogle() {
       console.log('[Google Auth] Full URL:', data.url);
       console.log('[Google Auth] Opening in Safari View Controller...');
 
+      // The prompt=select_account should now be in the URL from queryParams above
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
         redirectUrl
@@ -275,6 +276,9 @@ export async function signInWithApple() {
  */
 export async function signOut() {
   try {
+    // Clear any pending WebBrowser auth sessions to prevent stale flow state
+    await WebBrowser.dismissAuthSession();
+
     // Sign out from Supabase
     await supabase.auth.signOut();
 
