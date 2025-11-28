@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { colors } from '../theme/colors';
 import { WEB_URL } from '../config';
 
-export default function CompactOpeningCard({ opening, onPress, onToggleFavorite, isFavorite, isLocked = false }) {
+export default function CompactOpeningCard({ opening, onPress, onToggleFavorite, isFavorite, isLocked = false, isPremium = true }) {
   const whitelevels = opening?.whitelevels || {};
   const blacklevels = opening?.blacklevels || {};
 
@@ -76,12 +76,14 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
     setImageKey(prev => prev + 1); // Force image reload
   };
 
+  // Check if the currently selected level is locked for free users
+  const isCurrentLevelLocked = !isPremium && selectedLevel > 1;
+
   return (
     <TouchableOpacity
-      style={[styles.card, isLocked && styles.cardLocked]}
-      onPress={() => !isLocked && onPress(opening, selectedLevel, selectedColor)}
-      activeOpacity={isLocked ? 1 : 0.8}
-      disabled={isLocked}
+      style={[styles.card, isCurrentLevelLocked && styles.cardLocked]}
+      onPress={() => onPress(opening, selectedLevel, selectedColor)}
+      activeOpacity={0.8}
     >
       {/* Board Preview Image/GIF */}
       <View style={styles.imageContainer}>
@@ -92,20 +94,20 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
               uri: imageUrl,
               cache: 'reload' // Force reload on key change
             }}
-            style={[styles.boardImage, isLocked && styles.boardImageLocked]}
+            style={[styles.boardImage, isCurrentLevelLocked && styles.boardImageLocked]}
             resizeMode="cover"
             // onLoadStart={() => console.log(`🖼️ Loading image for ${opening?.name} (${selectedColor} L${selectedLevel}): ${imageUrl}`)}
             // onLoad={() => console.log(`✅ Image loaded successfully`)}
             onError={(error) => console.error(`❌ Failed to load image for ${opening?.name}:`, error.nativeEvent)}
           />
         ) : (
-          <View style={[styles.placeholderBoard, isLocked && styles.placeholderLocked]}>
+          <View style={[styles.placeholderBoard, isCurrentLevelLocked && styles.placeholderLocked]}>
             <Text style={styles.placeholderText}>♟</Text>
           </View>
         )}
 
-        {/* Lock Overlay */}
-        {isLocked && (
+        {/* Lock Overlay - Only show when selected level is locked (Level 2 or 3 for free users) */}
+        {isCurrentLevelLocked && (
           <View style={styles.lockOverlay}>
             <View style={styles.lockIconContainer}>
               <Text style={styles.lockIcon}>🔒</Text>
@@ -125,6 +127,38 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
         <Text style={styles.stats}>
           {totalVariations} vars · {availableLevels.length} lvl{availableLevels.length !== 1 ? 's' : ''}
         </Text>
+
+        {/* Level Selector - Only show available levels */}
+        {availableLevels.length > 0 && (
+          <View style={styles.levelRow}>
+            {[1, 2, 3].map(level => {
+              const isAvailable = availableLevels.includes(level);
+              if (!isAvailable) return null;
+
+              return (
+                <TouchableOpacity
+                  key={level}
+                  onPress={(e) => {
+                    e.stopPropagation();
+                    setSelectedLevel(level);
+                    setImageKey(prev => prev + 1); // Force image reload
+                  }}
+                  style={[
+                    styles.levelButton,
+                    selectedLevel === level && styles.levelButtonActive
+                  ]}
+                >
+                  <Text style={[
+                    styles.levelText,
+                    selectedLevel === level && styles.levelTextActive
+                  ]}>
+                    L{level}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
 
         {/* Color Pills and Favorite Button Row */}
         <View style={styles.bottomRow}>
@@ -231,6 +265,35 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textSubtle,
     marginBottom: 8,
+  },
+  levelRow: {
+    flexDirection: 'row',
+    gap: 4,
+    marginBottom: 8,
+  },
+  levelButton: {
+    flex: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    borderRadius: 6,
+    backgroundColor: colors.background,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  levelButtonActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  levelText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.textSubtle,
+  },
+  levelTextActive: {
+    color: colors.primaryForeground,
+    fontWeight: '700',
   },
   bottomRow: {
     flexDirection: 'row',

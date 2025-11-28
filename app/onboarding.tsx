@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, useWindowDimensions, Platform } from 'react-native';
 import { router } from 'expo-router';
+import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/src/theme/colors';
 import RatingPromptModal from '@/src/components/RatingPromptModal';
 import { onboardingStorage } from '@/src/utils/storage';
@@ -66,8 +67,8 @@ export default function OnboardingScreen() {
   const skip = async () => {
     // console.log('[Onboarding] User clicked SKIP');
     await onboardingStorage.markOnboardingSeen();
-    // console.log('[Onboarding] Navigating to /paywall after skip');
-    router.replace('/paywall');
+    // console.log('[Onboarding] Navigating to / after skip');
+    router.replace('/');
   };
 
   const next = async () => {
@@ -177,8 +178,8 @@ export default function OnboardingScreen() {
 
       <RatingPromptModal
         visible={showRating}
-        onSubmit={() => { setShowRating(false); router.replace('/paywall'); }}
-        onCancel={() => { setShowRating(false); router.replace('/paywall'); }}
+        onSubmit={() => { setShowRating(false); router.replace('/'); }}
+        onCancel={() => { setShowRating(false); router.replace('/'); }}
       />
     </SafeAreaView>
   );
@@ -279,6 +280,23 @@ function renderCenter(key: SlideKey, isTablet: boolean) {
         </View>
       );
     case 'done':
-      return <Text style={{ fontSize: 64 }}>✓</Text>;
+      return (
+        <View style={{ 
+          width: '100%', 
+          height: '100%', 
+          backgroundColor: colors.success, 
+          borderRadius: 999, 
+          alignItems: 'center', 
+          justifyContent: 'center',
+          borderWidth: 4,
+          borderColor: 'rgba(255,255,255,0.2)',
+        }}>
+          <Ionicons name="checkmark-sharp" size={isTablet ? 100 : 72} color="#ffffff" style={{ fontWeight: '900' }} />
+          {/* Decorative elements for a "celebratory" feel */}
+          <Ionicons name="star" size={isTablet ? 32 : 24} color="#fbbf24" style={{ position: 'absolute', top: '18%', right: '22%' }} />
+          <Ionicons name="star" size={isTablet ? 24 : 16} color="#ffffff" style={{ position: 'absolute', bottom: '22%', left: '24%', opacity: 0.9 }} />
+          <Ionicons name="sparkles" size={isTablet ? 28 : 20} color="#fbbf24" style={{ position: 'absolute', top: '25%', left: '18%' }} />
+        </View>
+      );
   }
 }

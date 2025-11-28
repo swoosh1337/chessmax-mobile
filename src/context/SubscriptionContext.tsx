@@ -21,6 +21,8 @@ const DISABLE_DEVELOPER_ACCESS = process.env.EXPO_PUBLIC_DISABLE_DEVELOPER_ACCES
 
 const DEVELOPER_EMAILS = [
   'tazigrigolia@gmail.com',
+  'nugzarchkh@gmail.com',
+  'giochkhaidze10@gmail.com',
 ];
 
 // Product IDs - these must match what you create in App Store Connect
@@ -139,7 +141,18 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         setIsLoading(false);
       } catch (err: any) {
         console.error('[IAP] Init error:', err);
-        setError(err.message || 'Failed to initialize purchases');
+
+        // In development (Expo Go or simulator), IAP will fail - that's expected
+        // Don't show error to user, just log it
+        const isDevelopmentEnvironment = __DEV__ || err.message?.includes('Expo Go') || err.message?.includes('simulator');
+
+        if (isDevelopmentEnvironment) {
+          console.warn('[IAP] Running in development environment - IAP features disabled');
+          setError(null); // Don't show error to user
+        } else {
+          setError(err.message || 'Failed to initialize purchases');
+        }
+
         setIsLoading(false);
       } finally {
         initializingRef.current = false;

@@ -36,6 +36,16 @@ interface VariationStats {
   best_score: number;
 }
 
+interface OpeningStats {
+  opening_name: string;
+  variations_count: number;
+  total_sessions: number;
+  completed_sessions: number;
+  total_mistakes: number;
+  total_duration: number;
+  best_score: number;
+}
+
 interface TrainingContextType {
   // Current session
   currentSession: TrainingSession | null;
@@ -46,6 +56,7 @@ interface TrainingContextType {
   streak: number;
   dailyStats: DailyStats[];
   variationStats: VariationStats[];
+  openingStats: OpeningStats[];
   totalMinutes: number;
 
   // Loading state
@@ -63,6 +74,7 @@ export function TrainingProvider({ children }: { children: React.ReactNode }) {
   const [streak, setStreak] = useState(0);
   const [dailyStats, setDailyStats] = useState<DailyStats[]>([]);
   const [variationStats, setVariationStats] = useState<VariationStats[]>([]);
+  const [openingStats, setOpeningStats] = useState<OpeningStats[]>([]);
   const [totalMinutes, setTotalMinutes] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -94,7 +106,8 @@ export function TrainingProvider({ children }: { children: React.ReactNode }) {
         setStreak(streakData);
       }
 
-      // Fetch daily stats (last 90 days)
+      // Fetch daily stats (OPTIMIZED: using materialized view for totals)
+      // Still fetch daily breakdown for calendar display
       const ninetyDaysAgo = new Date();
       ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
 
@@ -107,53 +120,37 @@ export function TrainingProvider({ children }: { children: React.ReactNode }) {
 
       if (!dailyError && dailyData) {
         setDailyStats(dailyData);
+      }
 
-        // Calculate total minutes
+      // OPTIMIZED: Get total minutes from user_profiles (auto-updated by trigger)
+      const { data: profileData, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('total_training_minutes')
+        .eq('user_id', user.id)
+        .single();
+
+      if (!profileError && profileData && profileData.total_training_minutes !== null) {
+        setTotalMinutes(profileData.total_training_minutes);
+      } else if (dailyData) {
+        // Fallback to client-side calculation if column not available
         const total = dailyData.reduce((sum, day) => sum + (day.total_duration_seconds || 0), 0);
         setTotalMinutes(Math.floor(total / 60));
       }
 
-      // Fetch variation stats
-      const { data: sessionData, error: sessionError } = await supabase
-        .from('training_sessions')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('completed', true)
-        .order('started_at', { ascending: false });
+      // Fetch variation stats (OPTIMIZED: pre-aggregated on server)
+      const { data: variationData, error: variationError } = await supabase
+        .rpc('get_user_variation_stats', { user_id_param: user.id });
 
-      if (!sessionError && sessionData) {
-        // Group by variation
-        const statsMap = new Map<string, any>();
+      if (!variationError && variationData) {
+        setVariationStats(variationData);
+      }
 
-        sessionData.forEach((session: TrainingSession) => {
-          const key = `${session.opening_name}::${session.variation_name || 'Unknown'}`;
+      // Fetch opening-level stats (OPTIMIZED: pre-aggregated on server)
+      const { data: openingData, error: openingError } = await supabase
+        .rpc('get_user_opening_stats', { user_id_param: user.id });
 
-          if (!statsMap.has(key)) {
-            statsMap.set(key, {
-              opening_name: session.opening_name,
-              variation_name: session.variation_name || 'Unknown',
-              total_sessions: 0,
-              completed_sessions: 0,
-              total_mistakes: 0,
-              total_duration: 0,
-              best_score: 0,
-            });
-          }
-
-          const stats = statsMap.get(key);
-          stats.total_sessions++;
-          if (session.completed) stats.completed_sessions++;
-          stats.total_mistakes += session.mistakes_count || 0;
-          stats.total_duration += session.duration_seconds || 0;
-          stats.best_score = Math.max(stats.best_score, session.score || 0);
-        });
-
-        const varStats: VariationStats[] = Array.from(statsMap.values()).map(s => ({
-          ...s,
-          average_duration: s.total_sessions > 0 ? Math.floor(s.total_duration / s.total_sessions) : 0,
-        }));
-
-        setVariationStats(varStats);
+      if (!openingError && openingData) {
+        setOpeningStats(openingData);
       }
 
       setIsLoading(false);
@@ -240,6 +237,7 @@ export function TrainingProvider({ children }: { children: React.ReactNode }) {
     streak,
     dailyStats,
     variationStats,
+    openingStats,
     totalMinutes,
     isLoading,
     refreshStats,

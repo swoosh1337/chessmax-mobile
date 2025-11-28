@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, Modal, ScrollView, Alert, ActivityIndicator } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -38,6 +38,68 @@ export default function TrainingScreen() {
   const [currentVariationIndex, setCurrentVariationIndex] = useState(0);
   const [variationStatuses, setVariationStatuses] = useState<Array<'pending' | 'success' | 'error'>>([]);
   const [variationPickerOpen, setVariationPickerOpen] = useState(false);
+
+  // Track completed variations to prevent double XP
+  const [completedVariationIds, setCompletedVariationIds] = useState<Set<string>>(new Set());
+
+  // Helper to generate unique ID for a variation
+  const getUniqueVariationId = useCallback((index: number) => {
+    if (!opening?.id) return `unknown_${index}`;
+    const vName = opening?.variations?.[index]?.name || `var_${index}`;
+    return `${opening.id}::${vName}`;
+  }, [opening?.id, opening?.variations]);
+
+  const hasAutoAdvanced = useRef(false);
+
+  // Fetch completed variations for this opening
+  useEffect(() => {
+    const fetchCompletions = async () => {
+      if (!user || !opening?.id) return;
+
+      try {
+        const { data } = await supabase
+          .from('variation_completions')
+          .select('variation_id')
+          .eq('user_id', user.id)
+          .eq('errors', 0) // Only count successful completions
+          // Filter by opening ID prefix
+          .ilike('variation_id', `${opening.id}::%`);
+
+        if (data) {
+          const completedSet = new Set(data.map(d => d.variation_id));
+          setCompletedVariationIds(completedSet);
+
+          // Auto-advance to first uncompleted variation (only once per mount)
+          if (!hasAutoAdvanced.current && opening?.variations?.length > 0) {
+            hasAutoAdvanced.current = true;
+            
+            let firstUncompletedIndex = 0;
+            const variations = opening.variations;
+            
+            for (let i = 0; i < variations.length; i++) {
+              const vName = variations[i].name || `var_${i}`;
+              const uid = `${opening.id}::${vName}`;
+              
+              if (!completedSet.has(uid)) {
+                firstUncompletedIndex = i;
+                break;
+              }
+            }
+            
+            // If found an uncompleted variation (and it's not the first one we're already on), switch to it
+            if (firstUncompletedIndex > 0) {
+              console.log('[Training] Auto-advancing to variation index:', firstUncompletedIndex);
+              switchToVariation(firstUncompletedIndex);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('[Training] Error fetching completions:', err);
+      }
+    };
+
+    fetchCompletions();
+  }, [user, opening?.id]);
 
   // Use currentOpening instead of params
   const opening = currentOpening;
@@ -250,18 +312,13 @@ export default function TrainingScreen() {
         ? (currentVariationIndex + 1) % variations.length
         : Math.floor(Math.random() * variations.length);
 
-      // Freemium restriction: Only first 3 variations (indices 0, 1, 2)
-      if (!isPremium && nextIndex >= 3) {
-        Alert.alert(
-          'Premium Required',
-          'Free users can practice the first 3 variations. Unlock all variations with ChessMaxx Premium!',
-          [
-            { text: 'Maybe Later', style: 'cancel' },
-            { text: 'Unlock Premium', onPress: () => router.push('/paywall') }
-          ]
-        );
-        return;
-      }
+      // Freemium restriction:
+      // - First 3 openings: All levels and all variations free
+      // - Other openings: Only level 1 is free (all variations available for level 1)
+      // - Levels 2+ for openings 4+: Require premium (blocked at opening selection)
+
+      // No variation limits for level 1 anymore - all variations are available
+      // Premium check is done at the level selection in index.tsx
 
       switchToVariation(nextIndex);
     };
@@ -356,6 +413,10 @@ export default function TrainingScreen() {
       // Get difficulty from opening data (default to 1 if not specified)
       const difficulty = opening?.difficulty || 1;
 
+      // Check if already completed
+      const uniqueVariationId = getUniqueVariationId(currentVariationIndex);
+      const isAlreadyCompleted = completedVariationIds.has(uniqueVariationId);
+
       // Calculate XP (for display, even if not logged in)
       const xpResult = calculateXP({
         difficulty,
@@ -364,11 +425,11 @@ export default function TrainingScreen() {
         completionTimeSeconds,
       });
 
-      // console.log('[Training] XP Calculation:', xpResult);
-      // console.log('[Training] Breakdown:', xpResult.breakdown);
+      // Only award XP if not already completed
+      const xpToAward = isAlreadyCompleted ? 0 : xpResult.totalXP;
 
       // Store XP for display in modal
-      setEarnedXP(xpResult.totalXP);
+      setEarnedXP(xpToAward);
 
       // Save XP to database if user is authenticated
       if (user) {
@@ -399,76 +460,73 @@ export default function TrainingScreen() {
               console.error('[Training] Error creating profile:', createError);
               // Continue anyway, maybe it was created by another process
             }
-            // else {
-            //   console.log('[Training] Profile created successfully');
-            // }
           }
 
-          // Get current user profile
-          const { data: profile, error: profileError } = await supabase
-            .from('user_profiles')
-            .select('total_xp, weekly_xp')
-            .eq('id', user.id)
-            .single();
-
-          if (profileError) {
-            console.error('[Training] Error fetching profile:', profileError);
-          } else {
-            // Calculate new XP values
-            const newTotalXP = (profile?.total_xp || 0) + xpResult.totalXP;
-            const newWeeklyXP = (profile?.weekly_xp || 0) + xpResult.totalXP;
-            const newLevel = calculateLevel(newTotalXP);
-
-            // Update user profile with new XP
-            const { error: updateError } = await supabase
+          // Only update profile if XP > 0
+          if (xpToAward > 0) {
+            // Get current user profile
+            const { data: profile, error: profileError } = await supabase
               .from('user_profiles')
-              .update({
-                total_xp: newTotalXP,
-                weekly_xp: newWeeklyXP,
-                level: newLevel,
-              })
-              .eq('id', user.id);
+              .select('total_xp, weekly_xp')
+              .eq('id', user.id)
+              .single();
 
-            if (updateError) {
-              console.error('[Training] Error updating profile:', updateError);
+            if (profileError) {
+              console.error('[Training] Error fetching profile:', profileError);
             } else {
+              // Calculate new XP values
+              const newTotalXP = (profile?.total_xp || 0) + xpToAward;
+              const newWeeklyXP = (profile?.weekly_xp || 0) + xpToAward;
+              const newLevel = calculateLevel(newTotalXP);
 
-              // Save variation completion to database (after profile exists)
-              const { error: completionError } = await supabase
-                .from('variation_completions')
-                .insert({
-                  user_id: user.id,
-                  variation_id: opening?.id || opening?.name || 'unknown',
-                  difficulty,
-                  errors,
-                  hints_used: hintsUsed,
-                  completion_time_seconds: completionTimeSeconds,
-                  xp_earned: xpResult.totalXP,
+              // Update user profile with new XP
+              const { error: updateError } = await supabase
+                .from('user_profiles')
+                .update({
+                  total_xp: newTotalXP,
+                  weekly_xp: newWeeklyXP,
+                  level: newLevel,
+                })
+                .eq('id', user.id);
+
+              if (updateError) {
+                console.error('[Training] Error updating profile:', updateError);
+              } else {
+                // Optimistically update user profile in cache
+                updateUserProfile({
+                  total_xp: newTotalXP,
+                  weekly_xp: newWeeklyXP,
+                  level: newLevel,
                 });
-
-              if (completionError) {
-                console.error('[Training] Error saving completion:', completionError);
-                // Don't return - XP was already saved
+                
+                // Invalidate leaderboard cache to trigger refetch
+                invalidateCache();
               }
-
-              // console.log('[Training] XP saved successfully!', {
-              //   xpEarned: xpResult.totalXP,
-              //   newTotalXP,
-              //   newWeeklyXP,
-              //   newLevel,
-              // });
-
-              // Optimistically update user profile in cache
-              updateUserProfile({
-                total_xp: newTotalXP,
-                weekly_xp: newWeeklyXP,
-                level: newLevel,
-              });
-
-              // Invalidate leaderboard cache to trigger refetch
-              invalidateCache();
             }
           }
+
+          // Save variation completion to database (always, to record the attempt/practice)
+          // BUT we only want to mark it as "completed" if it wasn't before?
+          // Actually, recording the attempt is fine. The important part is we used unique ID.
+          const { error: completionError } = await supabase
+            .from('variation_completions')
+            .insert({
+              user_id: user.id,
+              variation_id: uniqueVariationId,
+              difficulty,
+              errors,
+              hints_used: hintsUsed,
+              completion_time_seconds: completionTimeSeconds,
+              xp_earned: xpToAward,
+            });
+
+          if (completionError) {
+            console.error('[Training] Error saving completion:', completionError);
+          } else if (success) {
+            // Update local state to show as completed
+            setCompletedVariationIds(prev => new Set(prev).add(uniqueVariationId));
+          }
+
         } catch (error) {
           console.error('[Training] Error saving XP:', error);
         }
@@ -753,15 +811,36 @@ export default function TrainingScreen() {
     reset();
   }, [orientation, opening]);
 
-  // Guard against resetting variation statuses unnecessarily; only init if empty/mismatch
+  // Initialize and update variation statuses
   useEffect(() => {
     if (opening?.variations?.length > 0) {
       setVariationStatuses((prev) => {
-        if (prev.length === opening.variations.length) return prev;
-        return new Array(opening.variations.length).fill('pending');
+        // Create new array based on variations
+        const next = new Array(opening.variations.length).fill('pending');
+        
+        // Preserve current session progress (if better than pending)
+        prev.forEach((status, idx) => {
+          if (idx < next.length && status !== 'pending') {
+            next[idx] = status;
+          }
+        });
+
+        // Mark historically completed variations
+        if (completedVariationIds.size > 0) {
+          opening.variations.forEach((_: any, idx: number) => {
+            const uid = getUniqueVariationId(idx);
+            if (completedVariationIds.has(uid)) {
+              next[idx] = 'success';
+            }
+          });
+        }
+
+        // Check if changed to avoid loop
+        if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+        return next;
       });
     }
-  }, [opening?.variations?.length, opening?.id]);
+  }, [opening?.variations?.length, opening?.id, completedVariationIds, getUniqueVariationId]);
 
   if (!opening) {
     return (
@@ -829,7 +908,7 @@ export default function TrainingScreen() {
           onSeriesMode={handleSeriesMode}
           onRandomMode={handleRandomMode}
           currentMode={currentMode}
-          variationLabel={opening?.variationName || opening?.name || `Variation ${currentVariationIndex + 1}`}
+          variationLabel={`Variation ${currentVariationIndex + 1}`}
           progress={progress}
           progressStatus={trainingCompleteRef.current ? (errors === 0 ? 'success' : 'error') : 'neutral'}
           variationStatuses={variationStatuses}
@@ -873,34 +952,59 @@ export default function TrainingScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Variation</Text>
             <ScrollView style={styles.modalScroll}>
-              {(opening?.variations || []).map((variation: any, idx: number) => (
-                <TouchableOpacity
-                  key={idx}
-                  style={[
-                    styles.variationItem,
-                    currentVariationIndex === idx && styles.variationItemActive
-                  ]}
-                  onPress={() => {
-                    switchToVariation(idx);
-                    setVariationPickerOpen(false);
-                  }}
-                >
-                  <View style={styles.variationItemContent}>
-                    <Text style={[
-                      styles.variationText,
-                      currentVariationIndex === idx && styles.variationTextActive
-                    ]}>
-                      {variation.name || variation.variationName || `Variation ${idx + 1}`}
-                    </Text>
-                    {variationStatuses[idx] === 'success' && (
-                      <Text style={styles.statusBadge}>✓</Text>
-                    )}
-                    {variationStatuses[idx] === 'error' && (
-                      <Text style={[styles.statusBadge, styles.statusBadgeError]}>✗</Text>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              ))}
+              {(opening?.variations || []).map((variation: any, idx: number) => {
+                // All variations are now accessible (premium check is done at level selection)
+                const isLocked = false;
+
+                return (
+                  <TouchableOpacity
+                    key={idx}
+                    style={[
+                      styles.variationItem,
+                      currentVariationIndex === idx && styles.variationItemActive,
+                      isLocked && styles.variationItemLocked
+                    ]}
+                    onPress={() => {
+                      if (isLocked) {
+                        Alert.alert(
+                          'Premium Required',
+                          'Unlock all variations with ChessMaxx Premium!',
+                          [
+                            { text: 'Maybe Later', style: 'cancel' },
+                            { text: 'Unlock Premium', onPress: () => {
+                              setVariationPickerOpen(false);
+                              router.push('/paywall');
+                            }}
+                          ]
+                        );
+                        return;
+                      }
+                      switchToVariation(idx);
+                      setVariationPickerOpen(false);
+                    }}
+                    disabled={false}
+                  >
+                    <View style={styles.variationItemContent}>
+                      <Text style={[
+                        styles.variationText,
+                        currentVariationIndex === idx && styles.variationTextActive,
+                        isLocked && styles.variationTextLocked
+                      ]}>
+                        Variation {idx + 1}
+                      </Text>
+                      {isLocked && (
+                        <Text style={styles.lockBadge}>🔒</Text>
+                      )}
+                      {!isLocked && variationStatuses[idx] === 'success' && (
+                        <Text style={styles.statusBadge}>✓</Text>
+                      )}
+                      {!isLocked && variationStatuses[idx] === 'error' && (
+                        <Text style={[styles.statusBadge, styles.statusBadgeError]}>✗</Text>
+                      )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
             </ScrollView>
             <TouchableOpacity
               style={styles.modalCloseButton}
@@ -1042,6 +1146,9 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderColor: colors.primary,
   },
+  variationItemLocked: {
+    opacity: 0.5,
+  },
   variationItemContent: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1057,6 +1164,9 @@ const styles = StyleSheet.create({
     color: colors.background,
     fontWeight: '700',
   },
+  variationTextLocked: {
+    color: colors.textSubtle,
+  },
   statusBadge: {
     fontSize: 18,
     color: colors.success,
@@ -1065,6 +1175,10 @@ const styles = StyleSheet.create({
   },
   statusBadgeError: {
     color: colors.destructive,
+  },
+  lockBadge: {
+    fontSize: 16,
+    marginLeft: 8,
   },
   modalCloseButton: {
     marginTop: 16,

@@ -107,32 +107,69 @@ export default function HomeScreen() {
 
   const categorizedOpenings = groupByCategory(filteredData);
 
-  // Helper: Check if opening/variation is accessible for free users
-  const isOpeningFree = (opening: any): boolean => {
+  // Helper: Get the first 3 openings in display order (for freemium check)
+  const getFirstThreeOpenings = (): any[] => {
+    const categories = Object.keys(categorizedOpenings);
+    const allOpenings: any[] = [];
+
+    // Flatten all openings in order
+    categories.forEach(category => {
+      const categoryOpenings = categorizedOpenings[category] || [];
+      allOpenings.push(...categoryOpenings);
+    });
+
+    return allOpenings.slice(0, 3);
+  };
+
+  // Helper: Check if opening is in the first 3 (gets all levels and variations free)
+  const isInFirstThreeOpenings = (opening: any): boolean => {
+    const firstThree = getFirstThreeOpenings();
+    return firstThree.some(o => o.id === opening.id);
+  };
+
+  // Helper: Check if opening/level is accessible for free users
+  const isOpeningLevelAccessible = (opening: any, level: number): boolean => {
     // Premium users get everything
     if (isPremium) return true;
 
-    // For free users: Only first opening is accessible
-    // Get the first opening from categorized openings (in display order)
-    const categories = Object.keys(categorizedOpenings);
-    if (categories.length === 0) return false;
+    // Free users:
+    // 1. First 3 openings: All levels and variations are free
+    // 2. Other openings (4th onwards): Only level 1 is free
+    // 3. Levels 2 and 3 for openings 4+: Require premium
 
-    const firstCategory = categories[0];
-    const firstOpening = categorizedOpenings[firstCategory]?.[0];
+    const isInFirstThree = isInFirstThreeOpenings(opening);
 
-    if (!firstOpening) return false;
+    if (isInFirstThree) {
+      // First 3 openings: All levels are free
+      return true;
+    }
 
-    return opening.id === firstOpening.id;
+    // For openings 4+: Only level 1 is free
+    if (level > 1) {
+      return false;
+    }
+
+    return true;
+  };
+
+  // Helper: Check if opening card should be marked as locked
+  const isOpeningAccessible = (opening: any): boolean => {
+    // Premium users get everything
+    if (isPremium) return true;
+
+    // For free users: First 3 openings are fully accessible
+    // Other openings have limited access (level 1 only)
+    return isInFirstThreeOpenings(opening);
   };
 
   // Handle opening press - navigate to training screen
   const handleOpeningPress = (opening: any, level: number, color: string) => {
-    // Check freemium restrictions
-    if (!isPremium && !isOpeningFree(opening)) {
-      // Show paywall for locked openings
+    // Check level accessibility for free users
+    if (!isPremium && !isOpeningLevelAccessible(opening, level)) {
+      // Show paywall for locked levels
       Alert.alert(
         'Premium Required',
-        'Unlock all openings and variations with ChessMaxx Premium!',
+        `Level ${level} requires ChessMaxx Premium! Upgrade to unlock all levels and variations.`,
         [
           { text: 'Maybe Later', style: 'cancel' },
           { text: 'Unlock Premium', onPress: () => router.push('/paywall') }
@@ -166,7 +203,8 @@ export default function HomeScreen() {
         openingData: JSON.stringify({
           ...trainingData,
           level,
-          color: color === 'white' ? 'w' : 'b'
+          color: color === 'white' ? 'w' : 'b',
+          isInFirstThree: isInFirstThreeOpenings(opening), // Pass if this is in first 3 openings
         })
       }
     });
@@ -240,7 +278,7 @@ export default function HomeScreen() {
             onToggleFavorite={toggleFavorite}
             favorites={favorites}
             isPremium={isPremium}
-            isOpeningAccessible={isOpeningFree}
+            isOpeningAccessible={isOpeningAccessible}
           />
         ))}
       </ScrollView>

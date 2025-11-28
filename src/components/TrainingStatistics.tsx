@@ -1,61 +1,13 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import { useTraining } from '../context/TrainingContext';
 
-interface OpeningGroup {
-  opening_name: string;
-  variations_count: number;
-  total_sessions: number;
-  completed_sessions: number;
-  total_mistakes: number;
-  total_duration: number;
-  best_score: number;
-  variations: any[];
-}
-
-// Extract base opening name by removing variation suffix
-const getBaseOpeningName = (fullName: string): string => {
-  // Remove patterns like "variation 1", "variation 2", "vari..." at the end
-  return fullName.replace(/\s+(variation|vari)\s*\d+\s*$/i, '').trim();
-};
-
 export default function TrainingStatistics() {
-  const { variationStats, totalMinutes } = useTraining();
+  const { variationStats, openingStats, totalMinutes } = useTraining();
   const [expandedOpening, setExpandedOpening] = useState<string | null>(null);
 
-  // Group variations by opening name
-  const openingGroups = useMemo(() => {
-    const groups = new Map<string, OpeningGroup>();
-
-    variationStats.forEach((variation) => {
-      // Use base opening name for grouping (without variation number)
-      const baseOpeningName = getBaseOpeningName(variation.opening_name);
-
-      if (!groups.has(baseOpeningName)) {
-        groups.set(baseOpeningName, {
-          opening_name: baseOpeningName,
-          variations_count: 0,
-          total_sessions: 0,
-          completed_sessions: 0,
-          total_mistakes: 0,
-          total_duration: 0,
-          best_score: 0,
-          variations: [],
-        });
-      }
-
-      const group = groups.get(baseOpeningName)!;
-      group.variations_count++;
-      group.total_sessions += variation.total_sessions;
-      group.completed_sessions += variation.completed_sessions;
-      group.total_mistakes += variation.total_mistakes;
-      group.total_duration += variation.average_duration * variation.total_sessions;
-      group.best_score = Math.max(group.best_score, variation.best_score);
-      group.variations.push(variation);
-    });
-
-    return Array.from(groups.values()).sort((a, b) => b.total_sessions - a.total_sessions);
-  }, [variationStats]);
+  // OPTIMIZED: Use pre-aggregated opening stats from server (no client-side grouping needed)
+  const openingGroups = openingStats;
 
   // Calculate unique openings count
   const uniqueOpenings = openingGroups.length;
@@ -179,36 +131,38 @@ export default function TrainingStatistics() {
                   {isExpanded && (
                     <View style={styles.variationsExpanded}>
                       <Text style={styles.variationsTitle}>Variations</Text>
-                      {opening.variations.map((variation, vIndex) => {
-                        const vCompletionRate = getCompletionRate(variation.completed_sessions, variation.total_sessions);
-                        const vAvgMistakes = variation.total_sessions > 0
-                          ? (variation.total_mistakes / variation.total_sessions).toFixed(1)
-                          : '0';
+                      {variationStats
+                        .filter((v) => v.opening_name.startsWith(opening.opening_name))
+                        .map((variation, vIndex) => {
+                          const vCompletionRate = getCompletionRate(variation.completed_sessions, variation.total_sessions);
+                          const vAvgMistakes = variation.total_sessions > 0
+                            ? (variation.total_mistakes / variation.total_sessions).toFixed(1)
+                            : '0';
 
-                        return (
-                          <View key={vIndex} style={styles.variationItem}>
-                            <View style={styles.variationItemHeader}>
-                              <Text style={styles.variationItemName} numberOfLines={1}>
-                                {variation.variation_name}
-                              </Text>
-                              <Text style={styles.variationItemCompletion}>{vCompletionRate}%</Text>
+                          return (
+                            <View key={vIndex} style={styles.variationItem}>
+                              <View style={styles.variationItemHeader}>
+                                <Text style={styles.variationItemName} numberOfLines={1}>
+                                  {variation.variation_name}
+                                </Text>
+                                <Text style={styles.variationItemCompletion}>{vCompletionRate}%</Text>
+                              </View>
+                              <View style={styles.variationItemStats}>
+                                <Text style={styles.variationItemStat}>
+                                  {variation.total_sessions} sessions
+                                </Text>
+                                <Text style={styles.variationItemStat}>•</Text>
+                                <Text style={styles.variationItemStat}>
+                                  {vAvgMistakes} avg mistakes
+                                </Text>
+                                <Text style={styles.variationItemStat}>•</Text>
+                                <Text style={styles.variationItemStat}>
+                                  {formatDuration(variation.average_duration)} avg
+                                </Text>
+                              </View>
                             </View>
-                            <View style={styles.variationItemStats}>
-                              <Text style={styles.variationItemStat}>
-                                {variation.total_sessions} sessions
-                              </Text>
-                              <Text style={styles.variationItemStat}>•</Text>
-                              <Text style={styles.variationItemStat}>
-                                {vAvgMistakes} avg mistakes
-                              </Text>
-                              <Text style={styles.variationItemStat}>•</Text>
-                              <Text style={styles.variationItemStat}>
-                                {formatDuration(variation.average_duration)} avg
-                              </Text>
-                            </View>
-                          </View>
-                        );
-                      })}
+                          );
+                        })}
                     </View>
                   )}
                 </View>

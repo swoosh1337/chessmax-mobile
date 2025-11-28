@@ -49,6 +49,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
 
   /**
    * Fetch leaderboard data from Supabase
+   * OPTIMIZED: Uses server-side RPC with window functions to calculate ranks efficiently
    */
   const fetchLeaderboard = useCallback(async () => {
     try {
@@ -58,39 +59,156 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
 
-      // Fetch all-time leaderboard (top 100) - only users who have played (XP > 0)
+      // Fetch all-time leaderboard with ranks (single RPC call)
       const { data: allTimeData, error: allTimeError } = await supabase
-        .from('user_profiles')
-        .select('id, username, total_xp, weekly_xp, level')
-        .gt('total_xp', 0)
-        .order('total_xp', { ascending: false })
-        .limit(100);
+        .rpc('get_leaderboard_with_user_rank', {
+          user_id_param: user?.id || null,
+          leaderboard_type: 'all_time'
+        });
 
       if (allTimeError) throw allTimeError;
 
-      // Fetch weekly leaderboard (top 100) - only users who have played this week (weekly_xp > 0)
+      // Fetch weekly leaderboard with ranks (single RPC call)
       const { data: weeklyData, error: weeklyError } = await supabase
-        .from('user_profiles')
-        .select('id, username, total_xp, weekly_xp, level')
-        .gt('weekly_xp', 0)
-        .order('weekly_xp', { ascending: false })
-        .limit(100);
+        .rpc('get_leaderboard_with_user_rank', {
+          user_id_param: user?.id || null,
+          leaderboard_type: 'weekly'
+        });
 
       if (weeklyError) throw weeklyError;
 
-      // Fetch speedrun leaderboard (top 100 fastest average times on perfect completions)
+      // Fetch speedrun leaderboard with ranks (single RPC call)
       const { data: speedrunData, error: speedrunError } = await supabase
-        .rpc('get_speedrun_leaderboard', { min_completions: 3 });
+        .rpc('get_leaderboard_with_user_rank', {
+          user_id_param: user?.id || null,
+          leaderboard_type: 'speedrun'
+        });
 
       if (speedrunError) {
         console.error('[LeaderboardContext] Speedrun error:', speedrunError);
         // Don't throw - continue with other leaderboards
       }
 
-      // Get current user's profile
+      // Separate current user from leaderboard data
       let currentUserProfile: UserProfile | undefined;
       let currentUserSpeedrun: SpeedrunProfile | undefined;
-      if (user) {
+
+      // Extract current user from all-time data FIRST
+      const currentUserInAllTime = (allTimeData || []).find((p: any) => p.is_current_user);
+      if (currentUserInAllTime) {
+        currentUserProfile = {
+          id: currentUserInAllTime.user_id,
+          username: currentUserInAllTime.username,
+          total_xp: currentUserInAllTime.score,
+          weekly_xp: 0, // Will fetch complete profile below
+          level: 1,
+          rank: currentUserInAllTime.rank
+        };
+      }
+
+      // Extract top 20 for all-time leaderboard
+      // If current user is in top 20, include them in the list
+      let allTimeTop20: UserProfile[];
+      if (currentUserInAllTime && currentUserInAllTime.rank <= 20) {
+        // Current user is in top 20, include them
+        allTimeTop20 = (allTimeData || [])
+          .slice(0, 20)
+          .map((p: any) => ({
+            id: p.user_id,
+            username: p.username,
+            total_xp: p.score,
+            weekly_xp: 0,
+            level: 1,
+            rank: p.rank
+          }));
+      } else {
+        // Current user is not in top 20, show top 20 others
+        allTimeTop20 = (allTimeData || [])
+          .filter((p: any) => !p.is_current_user)
+          .slice(0, 20)
+          .map((p: any) => ({
+            id: p.user_id,
+            username: p.username,
+            total_xp: p.score,
+            weekly_xp: 0,
+            level: 1,
+            rank: p.rank
+          }));
+      }
+
+      // Extract top 20 for weekly leaderboard
+      // If current user is in top 20, include them in the list
+      let weeklyTop20: UserProfile[];
+      const currentUserRankWeekly = currentUserInAllTime?.rank; // Using all-time for now since we don't track weekly rank separately
+      if (currentUserInAllTime && currentUserRankWeekly && currentUserRankWeekly <= 20) {
+        // Current user is in top 20, include them
+        weeklyTop20 = (weeklyData || [])
+          .slice(0, 20)
+          .map((p: any) => ({
+            id: p.user_id,
+            username: p.username,
+            total_xp: 0,
+            weekly_xp: p.score,
+            level: 1,
+            rank: p.rank
+          }));
+      } else {
+        // Current user is not in top 20, show top 20 others
+        weeklyTop20 = (weeklyData || [])
+          .filter((p: any) => !p.is_current_user)
+          .slice(0, 20)
+          .map((p: any) => ({
+            id: p.user_id,
+            username: p.username,
+            total_xp: 0,
+            weekly_xp: p.score,
+            level: 1,
+            rank: p.rank
+          }));
+      }
+
+      // Extract current user from speedrun data FIRST
+      const currentUserInSpeedrun = (speedrunData || []).find((p: any) => p.is_current_user);
+      if (currentUserInSpeedrun) {
+        currentUserSpeedrun = {
+          id: currentUserInSpeedrun.user_id,
+          username: currentUserInSpeedrun.username,
+          avg_time_seconds: currentUserInSpeedrun.score,
+          perfect_completions: currentUserInSpeedrun.perfect_completions || 3,
+          rank: currentUserInSpeedrun.rank
+        };
+      }
+
+      // Extract top 20 for display
+      // If current user is in top 20, include them in the list
+      let speedrunTop20: SpeedrunProfile[];
+      if (currentUserInSpeedrun && currentUserInSpeedrun.rank <= 20) {
+        // Current user is in top 20, include them
+        speedrunTop20 = (speedrunData || [])
+          .slice(0, 20)
+          .map((p: any) => ({
+            id: p.user_id,
+            username: p.username,
+            avg_time_seconds: p.score,
+            perfect_completions: p.perfect_completions || 3,
+            rank: p.rank
+          }));
+      } else {
+        // Current user is not in top 20, show top 20 others
+        speedrunTop20 = (speedrunData || [])
+          .filter((p: any) => !p.is_current_user)
+          .slice(0, 20)
+          .map((p: any) => ({
+            id: p.user_id,
+            username: p.username,
+            avg_time_seconds: p.score,
+            perfect_completions: p.perfect_completions || 3,
+            rank: p.rank
+          }));
+      }
+
+      // Get complete current user profile with all fields if user is authenticated
+      if (user && currentUserProfile) {
         const { data: userProfile, error: userError } = await supabase
           .from('user_profiles')
           .select('id, username, total_xp, weekly_xp, level')
@@ -98,74 +216,17 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
           .single();
 
         if (!userError && userProfile) {
-          currentUserProfile = userProfile;
-        }
-      }
-
-      // Add ranks to leaderboard data
-      const allTimeWithRanks = (allTimeData || []).map((profile, index) => ({
-        ...profile,
-        rank: index + 1,
-      }));
-
-      const weeklyWithRanks = (weeklyData || []).map((profile, index) => ({
-        ...profile,
-        rank: index + 1,
-      }));
-
-      const speedrunWithRanks = (speedrunData || []).map((profile: any, index: number) => ({
-        ...profile,
-        rank: index + 1,
-      }));
-
-      // Get current user's speedrun stats
-      if (user) {
-        const { data: userSpeedrunData } = await supabase
-          .rpc('get_user_speedrun_stats', { user_id_param: user.id });
-
-        if (userSpeedrunData && userSpeedrunData.length > 0) {
-          currentUserSpeedrun = userSpeedrunData[0];
-
-          // Calculate rank if not in top 100
-          const speedrunRank = speedrunWithRanks.findIndex((p: SpeedrunProfile) => p.id === user.id);
-          if (speedrunRank === -1 && currentUserSpeedrun.perfect_completions >= 3) {
-            // Count users faster than current user
-            const { count } = await supabase
-              .from('variation_completions')
-              .select('user_id', { count: 'exact', head: true })
-              .eq('errors', 0)
-              .lt('completion_time_seconds', currentUserSpeedrun.avg_time_seconds);
-
-            currentUserSpeedrun.rank = (count || 0) + 1;
-          } else if (speedrunRank !== -1) {
-            currentUserSpeedrun.rank = speedrunRank + 1;
-          }
-        }
-      }
-
-      // Calculate current user's rank if not in top 100
-      if (currentUserProfile) {
-        const allTimeRank = allTimeWithRanks.findIndex(p => p.id === currentUserProfile.id);
-        const weeklyRank = weeklyWithRanks.findIndex(p => p.id === currentUserProfile.id);
-
-        if (allTimeRank === -1) {
-          // User not in top 100, calculate their actual rank (excluding users with 0 XP)
-          const { count } = await supabase
-            .from('user_profiles')
-            .select('*', { count: 'exact', head: true })
-            .gt('total_xp', 0)
-            .gt('total_xp', currentUserProfile.total_xp);
-
-          currentUserProfile.rank = (count || 0) + 1;
-        } else {
-          currentUserProfile.rank = allTimeRank + 1;
+          currentUserProfile = {
+            ...userProfile,
+            rank: currentUserProfile.rank // Preserve rank from RPC
+          };
         }
       }
 
       setData({
-        allTime: allTimeWithRanks,
-        weekly: weeklyWithRanks,
-        speedrun: speedrunWithRanks,
+        allTime: allTimeTop20,
+        weekly: weeklyTop20,
+        speedrun: speedrunTop20,
         currentUser: currentUserProfile,
         currentUserSpeedrun,
       });
@@ -225,36 +286,59 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
   }, []);
 
   /**
+   * Debounced refetch function (waits 2 seconds before refetching)
+   * Prevents multiple rapid refetches
+   */
+  const debouncedRefetch = useCallback(
+    (() => {
+      let timeoutId: NodeJS.Timeout | null = null;
+      return (leaderboardType: string) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        timeoutId = setTimeout(() => {
+          console.log('[LeaderboardContext] Debounced refetch triggered for:', leaderboardType);
+          fetchLeaderboard();
+        }, 2000); // 2 second delay
+      };
+    })(),
+    [fetchLeaderboard]
+  );
+
+  /**
    * Subscribe/unsubscribe to real-time updates
+   * OPTIMIZED: Only listens to leaderboard_update_queue (filters out non-top-20 changes)
    */
   const subscribeToUpdates = useCallback((enabled: boolean) => {
     if (enabled && !subscription) {
-      // console.log('[LeaderboardContext] Subscribing to real-time updates');
+      console.log('[LeaderboardContext] Subscribing to optimized real-time updates');
 
       const channel = supabase
         .channel('leaderboard_changes')
         .on(
           'postgres_changes',
           {
-            event: '*',
+            event: 'INSERT',
             schema: 'public',
-            table: 'user_profiles',
+            table: 'leaderboard_update_queue',
           },
           (payload) => {
-            // console.log('[LeaderboardContext] Real-time update received:', payload);
-            // Refetch to get updated rankings
-            fetchLeaderboard();
+            console.log('[LeaderboardContext] Leaderboard update queued:', payload.new);
+            const leaderboardType = payload.new?.leaderboard_type;
+
+            // Debounced refetch (only when top 20 changes)
+            if (leaderboardType) {
+              debouncedRefetch(leaderboardType);
+            }
           }
         )
         .subscribe();
 
       setSubscription(channel);
     } else if (!enabled && subscription) {
-      // console.log('[LeaderboardContext] Unsubscribing from real-time updates');
+      console.log('[LeaderboardContext] Unsubscribing from real-time updates');
       subscription.unsubscribe();
       setSubscription(null);
     }
-  }, [subscription, fetchLeaderboard]);
+  }, [subscription, debouncedRefetch]);
 
   // Clear cache and refetch when user changes (sign in/out)
   useEffect(() => {

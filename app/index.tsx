@@ -71,8 +71,8 @@ export default function IndexScreen() {
           return;
         }
 
-        // 3. Onboarding done - check paywall (from Supabase)
-        let paywallSeen = false;
+        // 3. Onboarding done - check profile (from Supabase)
+        // We no longer block on paywall_seen, but we ensure profile exists.
         if (isAuthenticated) {
           try {
             const { data: profile, error } = await supabase
@@ -81,10 +81,8 @@ export default function IndexScreen() {
               .eq('id', user?.id)
               .single();
 
-            if (!error && profile) {
-              paywallSeen = profile.paywall_seen ?? false;
-            } else if (error?.code === 'PGRST116') {
-              // Profile doesn't exist yet - create it with paywall_seen = false
+            if (error?.code === 'PGRST116') {
+              // Profile doesn't exist yet - create it
               const { error: createError } = await supabase
                 .from('user_profiles')
                 .insert({
@@ -100,24 +98,10 @@ export default function IndexScreen() {
               if (createError) {
                 console.error('[Index] Error creating profile:', createError);
               }
-              paywallSeen = false; // New profile, show paywall
             }
           } catch (error) {
-            console.error('[Index] Error checking paywall status:', error);
-            paywallSeen = false; // On error, show paywall
+            console.error('[Index] Error checking profile status:', error);
           }
-        }
-
-        if (!paywallSeen) {
-          const target = '/paywall';
-          if (navigationTarget.current === target) {
-            return; // Already navigating here
-          }
-          // console.log('[Index] Paywall not seen → /paywall');
-          navigationTarget.current = target;
-          setChecking(false);
-          router.replace(target);
-          return;
         }
 
         // 4. Everything done - go to main app

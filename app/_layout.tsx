@@ -1,9 +1,13 @@
 import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
-import { Stack } from 'expo-router';
+import { Stack, router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect, useState } from 'react';
 import { Asset } from 'expo-asset';
+import { TouchableOpacity, Platform } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { colors } from '@/src/theme/colors';
+
 // Reanimated import removed - we use react-native Animated instead
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -73,7 +77,20 @@ export default function RootLayout() {
                 <Stack.Screen name="index" options={{ headerShown: false }} />
                 <Stack.Screen name="auth" options={{ headerShown: false }} />
                 <Stack.Screen name="onboarding" options={{ headerShown: false }} />
-                <Stack.Screen name="paywall" options={{ headerShown: false }} />
+                <Stack.Screen name="paywall"
+                  options={{
+                    presentation: 'modal', // Or 'sheet' for iOS-style
+                    headerShown: true,
+                    headerTitle: '', // No title
+                    headerTransparent: true, // Make header transparent to blend with modal content
+                    headerLeft: () => (
+                      <TouchableOpacity onPress={() => router.back()} style={{ marginLeft: 16, marginTop: Platform.OS === 'ios' ? 0 : 6 }}>
+                        <Ionicons name="close" size={30} color={colors.foreground} />
+                      </TouchableOpacity>
+                    ),
+                    gestureEnabled: false, // Disable swipe down to dismiss
+                  }}
+                />
                 <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
                 <Stack.Screen name="training" options={{ headerShown: false }} />
                 <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />

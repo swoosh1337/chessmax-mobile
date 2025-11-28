@@ -360,7 +360,7 @@ export default function ProfileScreen() {
                         <View style={styles.subscriptionDetails}>
                           <View style={styles.detailRow}>
                             <Text style={styles.detailLabel}>Access</Text>
-                            <Text style={styles.detailValue}>First opening, 3 variations</Text>
+                            <Text style={styles.detailValue}>First 3 openings (all levels)</Text>
                           </View>
                         </View>
                       )}
@@ -482,16 +482,6 @@ export default function ProfileScreen() {
         {/* Show action buttons based on authentication status */}
         {user ? (
           <View style={styles.actions}>
-            {/* Show "Get Premium" button only for authenticated free users */}
-            {!isPremium && (
-              <TouchableOpacity
-                style={styles.btnGetPremium}
-                onPress={() => router.push('/paywall')}
-              >
-                <Text style={styles.btnGetPremiumText}>Get Premium</Text>
-              </TouchableOpacity>
-            )}
-
             <TouchableOpacity
               style={styles.btnSignOut}
               onPress={handleSignOut}

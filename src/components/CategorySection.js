@@ -36,6 +36,7 @@ export default function CategorySection({
                 onToggleFavorite={onToggleFavorite}
                 isFavorite={favorites.has(opening.id || opening.name)}
                 isLocked={!isAccessible}
+                isPremium={isPremium}
               />
             </View>
           );

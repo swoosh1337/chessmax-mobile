@@ -237,11 +237,6 @@ export default function PaywallScreen() {
           </View>
         )}
 
-        {/* Continue as free user */}
-        <TouchableOpacity onPress={continueToApp} style={styles.freeLink}>
-          <Text style={styles.freeLinkText}>Continue with limited access</Text>
-        </TouchableOpacity>
-
         {/* Footer links */}
         <View style={styles.footerLinks}>
           <TouchableOpacity onPress={handleRestore} disabled={purchasing}>

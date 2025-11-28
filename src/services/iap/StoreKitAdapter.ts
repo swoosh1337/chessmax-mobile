@@ -1,5 +1,20 @@
-import * as InAppPurchases from 'expo-in-app-purchases';
+// import * as InAppPurchases from 'expo-in-app-purchases';
 import { IAPAdapter, Product, Purchase } from './types';
+
+let InAppPurchases: any;
+try {
+    InAppPurchases = require('expo-in-app-purchases');
+} catch (error) {
+    console.warn('[StoreKitAdapter] expo-in-app-purchases not found. Using mock.');
+    InAppPurchases = {
+        connectAsync: async () => false,
+        getProductsAsync: async () => ({ responseCode: 1, results: [] }),
+        purchaseItemAsync: async () => {},
+        getPurchaseHistoryAsync: async () => ({ responseCode: 1, results: [] }),
+        finishTransactionAsync: async () => {},
+        IAPResponseCode: { OK: 0 }
+    };
+}
 
 export class StoreKitAdapter implements IAPAdapter {
     private initialized = false;

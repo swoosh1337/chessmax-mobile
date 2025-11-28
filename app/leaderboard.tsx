@@ -140,14 +140,16 @@ export default function LeaderboardScreen() {
         );
       }
 
-      // Check if user is in top 100 (appears in leaderboard list)
-      const userInTop100 = data.speedrun?.some((p) => p.id === user.id);
-      console.log('[Leaderboard] User in top 100?', userInTop100, 'User ID:', user.id);
-      console.log('[Leaderboard] Speedrun data:', data.speedrun?.map(p => p.id));
+      // Check if user's rank is 20 or better (should appear in top 20 list)
+      const userRank = data.currentUserSpeedrun.rank || 999;
+      const userInTop20 = userRank <= 20;
 
-      // IMPORTANT: Don't show "YOUR RANK" if user is already in the main list
-      if (userInTop100) {
-        console.log('[Leaderboard] User is in top 100, not showing YOUR RANK section');
+      console.log('[Leaderboard] User rank:', userRank);
+      console.log('[Leaderboard] User in top 20?', userInTop20);
+
+      // IMPORTANT: Don't show "YOUR RANK" if user is in top 20
+      if (userInTop20) {
+        console.log('[Leaderboard] User is in top 20, not showing YOUR RANK section');
         return null;
       }
 

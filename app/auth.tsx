@@ -61,12 +61,6 @@ export default function AuthScreen() {
     }
   };
 
-  const continueAsGuest = () => {
-    // For guest mode, skip auth and go directly to onboarding
-    // console.log('[AuthScreen] Continuing as guest');
-    router.replace('/onboarding');
-  };
-
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
@@ -81,9 +75,6 @@ export default function AuthScreen() {
         </TouchableOpacity>
         <TouchableOpacity style={[styles.btn, styles.btnApple]} onPress={() => handle('apple')} disabled={!!loading}>
           <Text style={[styles.btnText]}>{loading==='apple' ? 'Connecting…' : 'Continue with Apple'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={continueAsGuest} style={styles.linkBtn}>
-          <Text style={styles.linkText}>Continue as guest</Text>
         </TouchableOpacity>
       </View>
     </SafeAreaView>
