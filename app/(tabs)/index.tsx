@@ -279,6 +279,7 @@ export default function HomeScreen() {
             favorites={favorites}
             isPremium={isPremium}
             isOpeningAccessible={isOpeningAccessible}
+            isInFirstThreeOpenings={isInFirstThreeOpenings}
           />
         ))}
       </ScrollView>

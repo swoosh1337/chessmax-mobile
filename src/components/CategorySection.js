@@ -11,6 +11,7 @@ export default function CategorySection({
   favorites = new Set(),
   isPremium = false,
   isOpeningAccessible = () => true,
+  isInFirstThreeOpenings = () => false,
 }) {
   if (!openings || openings.length === 0) {
     return null;
@@ -28,6 +29,7 @@ export default function CategorySection({
       <View style={styles.grid}>
         {openings.map((opening) => {
           const isAccessible = isOpeningAccessible(opening);
+          const isInFirstThree = isInFirstThreeOpenings(opening);
           return (
             <View key={opening.id || opening.name} style={styles.gridItem}>
               <CompactOpeningCard
@@ -37,6 +39,7 @@ export default function CategorySection({
                 isFavorite={favorites.has(opening.id || opening.name)}
                 isLocked={!isAccessible}
                 isPremium={isPremium}
+                isInFirstThree={isInFirstThree}
               />
             </View>
           );

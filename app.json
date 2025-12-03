@@ -37,6 +37,15 @@
           "resizeMode": "contain",
           "backgroundColor": "#000000"
         }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/icon.png",
+          "color": "#FACC15",
+          "defaultChannel": "default",
+          "sounds": []
+        }
       ]
     ],
     "experiments": {

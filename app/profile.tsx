@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, TextInput, ActivityIndicator } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, TextInput, ActivityIndicator, Switch, Platform, Linking } from 'react-native';
 import { colors } from '@/src/theme/colors';
 import { useAuth } from '@/src/context/AuthContext';
 import { router } from 'expo-router';
@@ -14,6 +14,13 @@ import TrainingStatistics from '@/src/components/TrainingStatistics';
 import ProfileStatsSkeleton from '@/src/components/ProfileStatsSkeleton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { onboardingStorage, ratingStorage } from '@/src/utils/storage';
+import DateTimePicker from '@react-native-community/datetimepicker';
+import {
+  scheduleDailyReminder,
+  cancelDailyReminder,
+  getReminderSettings,
+  checkNotificationPermissions
+} from '@/src/utils/notifications';
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
@@ -27,6 +34,11 @@ export default function ProfileScreen() {
   const [loadingProfile, setLoadingProfile] = useState(true);
   const [showStats, setShowStats] = useState<'calendar' | 'stats'>('calendar');
   const [cachedProfile, setCachedProfile] = useState<any>(null);
+
+  // Reminder settings state
+  const [reminderEnabled, setReminderEnabled] = useState(false);
+  const [reminderTime, setReminderTime] = useState(new Date());
+  const [showTimePicker, setShowTimePicker] = useState(false);
 
   // Get user profile from leaderboard data or cache
   const userProfile = leaderboardData?.currentUser || cachedProfile;
@@ -157,6 +169,109 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Failed to update username. Please try again.');
     } finally {
       setSavingUsername(false);
+    }
+  };
+
+  // Load reminder settings on mount
+  useEffect(() => {
+    loadReminderSettings();
+  }, []);
+
+  const loadReminderSettings = async () => {
+    try {
+      const settings = await getReminderSettings();
+      if (settings) {
+        setReminderEnabled(settings.enabled);
+        // Set time based on saved hour and minute
+        const time = new Date();
+        time.setHours(settings.hour);
+        time.setMinutes(settings.minute);
+        setReminderTime(time);
+      }
+    } catch (error) {
+      console.error('[Profile] Error loading reminder settings:', error);
+    }
+  };
+
+  const handleReminderToggle = async (value: boolean) => {
+    try {
+      if (value) {
+        // Enabling reminder - request permissions
+        const { requestNotificationPermissions } = await import('@/src/utils/notifications');
+        const hasPermission = await requestNotificationPermissions();
+
+        if (!hasPermission) {
+          Alert.alert(
+            'Notification Permission Required',
+            'ChessMaxx needs permission to send you training reminders. Please enable notifications in Settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Open Settings',
+                onPress: () => {
+                  Linking.openSettings();
+                }
+              }
+            ]
+          );
+          return;
+        }
+
+        // Show time picker
+        setShowTimePicker(true);
+      } else {
+        // Disabling reminder
+        await cancelDailyReminder();
+        setReminderEnabled(false);
+        Alert.alert('Success', 'Daily reminder has been turned off.');
+      }
+    } catch (error: any) {
+      console.error('[Profile] Error toggling reminder:', error);
+      Alert.alert('Error', error.message || 'Failed to update reminder settings.');
+    }
+  };
+
+  const handleTimeChange = async (event: any, selectedDate?: Date) => {
+    // On Android, the picker closes after selection
+    if (Platform.OS === 'android') {
+      setShowTimePicker(false);
+    }
+
+    if (event.type === 'dismissed') {
+      setShowTimePicker(false);
+      return;
+    }
+
+    if (selectedDate) {
+      setReminderTime(selectedDate);
+
+      try {
+        const hour = selectedDate.getHours();
+        const minute = selectedDate.getMinutes();
+
+        await scheduleDailyReminder(hour, minute);
+        setReminderEnabled(true);
+
+        // Format time for display
+        const timeString = selectedDate.toLocaleTimeString('en-US', {
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true
+        });
+
+        Alert.alert(
+          'Success',
+          `Daily training reminder set for ${timeString}. You'll receive a notification every day at this time.`
+        );
+
+        // On iOS, keep picker open until user dismisses
+        if (Platform.OS === 'ios') {
+          // Don't auto-close, let user tap "Done" or outside
+        }
+      } catch (error: any) {
+        console.error('[Profile] Error scheduling reminder:', error);
+        Alert.alert('Error', error.message || 'Failed to set reminder.');
+      }
     }
   };
 
@@ -467,10 +582,57 @@ export default function ProfileScreen() {
               <Text style={styles.value}>{providerDisplay}</Text>
             </View>
 
-            {/* User ID */}
-            <View style={styles.infoCard}>
-              <Text style={styles.label}>User ID</Text>
-              <Text style={styles.valueSmall}>{user.id}</Text>
+
+
+            {/* Daily Training Reminder */}
+            <View style={styles.reminderCard}>
+              <View style={styles.reminderHeader}>
+                <View style={styles.reminderTitleContainer}>
+                  <Text style={styles.reminderTitle}>🔔 Daily Training Reminder</Text>
+                  <Text style={styles.reminderSubtitle}>
+                    {reminderEnabled
+                      ? `Set for ${reminderTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`
+                      : 'Stay consistent with daily practice'}
+                  </Text>
+                </View>
+                <Switch
+                  value={reminderEnabled}
+                  onValueChange={handleReminderToggle}
+                  trackColor={{ false: colors.border, true: colors.primary }}
+                  thumbColor={reminderEnabled ? colors.background : colors.textSubtle}
+                  ios_backgroundColor={colors.border}
+                />
+              </View>
+
+              {reminderEnabled && (
+                <TouchableOpacity
+                  style={styles.changeTimeButton}
+                  onPress={() => setShowTimePicker(true)}
+                >
+                  <Text style={styles.changeTimeText}>Change Time</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* Time Picker */}
+              {showTimePicker && (
+                <View style={styles.timePickerContainer}>
+                  <DateTimePicker
+                    value={reminderTime}
+                    mode="time"
+                    is24Hour={false}
+                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                    onChange={handleTimeChange}
+                  />
+                  {Platform.OS === 'ios' && (
+                    <TouchableOpacity
+                      style={styles.doneButton}
+                      onPress={() => setShowTimePicker(false)}
+                    >
+                      <Text style={styles.doneButtonText}>Done</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              )}
             </View>
           </View>
         ) : (
@@ -804,6 +966,69 @@ const styles = StyleSheet.create({
     fontSize: 14,
     textAlign: 'center',
     marginTop: 12,
+  },
+  reminderCard: {
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+  },
+  reminderHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  reminderTitleContainer: {
+    flex: 1,
+    marginRight: 12,
+  },
+  reminderTitle: {
+    color: colors.foreground,
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  reminderSubtitle: {
+    color: colors.textSubtle,
+    fontSize: 13,
+    fontWeight: '500',
+  },
+  changeTimeButton: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    backgroundColor: colors.background,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+  },
+  changeTimeText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  timePickerContainer: {
+    marginTop: 12,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    padding: 12,
+    alignItems: 'center',
+  },
+  doneButton: {
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 24,
+    backgroundColor: colors.primary,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+  doneButtonText: {
+    color: colors.background,
+    fontSize: 16,
+    fontWeight: '700',
   },
 });
 

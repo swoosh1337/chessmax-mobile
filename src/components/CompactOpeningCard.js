@@ -3,7 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { colors } from '../theme/colors';
 import { WEB_URL } from '../config';
 
-export default function CompactOpeningCard({ opening, onPress, onToggleFavorite, isFavorite, isLocked = false, isPremium = true }) {
+export default function CompactOpeningCard({ opening, onPress, onToggleFavorite, isFavorite, isLocked = false, isPremium = true, isInFirstThree = false }) {
   const whitelevels = opening?.whitelevels || {};
   const blacklevels = opening?.blacklevels || {};
 
@@ -77,7 +77,9 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
   };
 
   // Check if the currently selected level is locked for free users
-  const isCurrentLevelLocked = !isPremium && selectedLevel > 1;
+  // First 3 openings: All levels free
+  // Other openings: Only level 1 free (levels 2+ require premium)
+  const isCurrentLevelLocked = !isPremium && !isInFirstThree && selectedLevel > 1;
 
   return (
     <TouchableOpacity
