@@ -231,12 +231,20 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleTimeChange = async (event: any, selectedDate?: Date) => {
-    // On Android, the picker closes after selection
+  const handleTimeChange = (event: any, selectedDate?: Date) => {
+    // On Android, the picker closes after selection and we schedule immediately
     if (Platform.OS === 'android') {
       setShowTimePicker(false);
+      if (event.type === 'dismissed') {
+        return;
+      }
+      if (selectedDate) {
+        handleConfirmTime(selectedDate);
+      }
+      return;
     }
 
+    // On iOS, just update the time state while scrolling
     if (event.type === 'dismissed') {
       setShowTimePicker(false);
       return;
@@ -244,34 +252,34 @@ export default function ProfileScreen() {
 
     if (selectedDate) {
       setReminderTime(selectedDate);
+    }
+  };
 
-      try {
-        const hour = selectedDate.getHours();
-        const minute = selectedDate.getMinutes();
+  const handleConfirmTime = async (timeToSet?: Date) => {
+    const selectedDate = timeToSet || reminderTime;
 
-        await scheduleDailyReminder(hour, minute);
-        setReminderEnabled(true);
+    try {
+      const hour = selectedDate.getHours();
+      const minute = selectedDate.getMinutes();
 
-        // Format time for display
-        const timeString = selectedDate.toLocaleTimeString('en-US', {
-          hour: 'numeric',
-          minute: '2-digit',
-          hour12: true
-        });
+      await scheduleDailyReminder(hour, minute);
+      setReminderEnabled(true);
+      setShowTimePicker(false);
 
-        Alert.alert(
-          'Success',
-          `Daily training reminder set for ${timeString}. You'll receive a notification every day at this time.`
-        );
+      // Format time for display
+      const timeString = selectedDate.toLocaleTimeString('en-US', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true
+      });
 
-        // On iOS, keep picker open until user dismisses
-        if (Platform.OS === 'ios') {
-          // Don't auto-close, let user tap "Done" or outside
-        }
-      } catch (error: any) {
-        console.error('[Profile] Error scheduling reminder:', error);
-        Alert.alert('Error', error.message || 'Failed to set reminder.');
-      }
+      Alert.alert(
+        'Success',
+        `Daily training reminder set for ${timeString}. You'll receive a notification every day at this time.`
+      );
+    } catch (error: any) {
+      console.error('[Profile] Error scheduling reminder:', error);
+      Alert.alert('Error', error.message || 'Failed to set reminder.');
     }
   };
 
@@ -626,7 +634,7 @@ export default function ProfileScreen() {
                   {Platform.OS === 'ios' && (
                     <TouchableOpacity
                       style={styles.doneButton}
-                      onPress={() => setShowTimePicker(false)}
+                      onPress={() => handleConfirmTime()}
                     >
                       <Text style={styles.doneButtonText}>Done</Text>
                     </TouchableOpacity>

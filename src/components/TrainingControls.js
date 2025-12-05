@@ -7,6 +7,7 @@ export default function TrainingControls({
   onHint,
   onSeriesMode,
   onRandomMode,
+  onModePress,
   currentMode = 'series',
   variationLabel = 'Variation 1',
   progress = { filled: 0, total: 0 },
@@ -28,6 +29,10 @@ export default function TrainingControls({
         <TouchableOpacity onPress={onHint} style={styles.controlButton}>
           <Ionicons name="bulb-outline" size={24} color={colors.primary} />
           <Text style={styles.buttonLabel}>Hint</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={onModePress} style={styles.controlButton}>
+          <Ionicons name="school-outline" size={24} color={colors.primary} />
+          <Text style={styles.buttonLabel}>Mode</Text>
         </TouchableOpacity>
         <TouchableOpacity
           onPress={onSeriesMode}

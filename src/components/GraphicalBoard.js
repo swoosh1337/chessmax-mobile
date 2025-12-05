@@ -5,7 +5,7 @@ import { Text } from 'react-native';
 import DraggablePiece from './DraggablePiece';
 import { colors } from '../theme/colors';
 
-const FILES = ['a','b','c','d','e','f','g','h'];
+const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
 function squareName(fileIndex, rankIndex, orientation = 'white') {
   if (orientation === 'white') {
@@ -185,7 +185,7 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
       </View>
 
       {/* Draggable piece layer */}
-      {Array.from({ length: 8 }).map((_, r) => 
+      {Array.from({ length: 8 }).map((_, r) =>
         Array.from({ length: 8 }).map((_, f) => {
           const br = orientation === 'white' ? r : 7 - r;
           const bf = orientation === 'white' ? f : 7 - f;
@@ -218,19 +218,23 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
       )}
       {showCoords && (
         <View pointerEvents="none" style={{ position: 'absolute', top: 0, left: 0, width: square * 8, height: square * 8 }}>
-          {/* files bottom */}
-          <View style={{ position: 'absolute', bottom: -16, left: 0, right: 0, flexDirection: 'row' }}>
+          {/* Files on bottom rank (a-h) - positioned at top-right of each square */}
+          <View style={{ position: 'absolute', bottom: 0, left: 0, right: 0, flexDirection: 'row' }}>
             {FILES.map((f, i) => (
-              <View key={`f-${f}`} style={{ width: square, alignItems: 'center' }}>
-                <Text style={{ color: '#666' }}>{orientation === 'white' ? f : FILES[7 - i]}</Text>
+              <View key={`f-${f}`} style={{ width: square, height: square, alignItems: 'flex-end', justifyContent: 'flex-start', paddingRight: 4, paddingTop: 2 }}>
+                <Text style={{ color: '#fff', fontSize: 11, fontWeight: '700', textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 }}>
+                  {orientation === 'white' ? f : FILES[7 - i]}
+                </Text>
               </View>
             ))}
           </View>
-          {/* ranks left */}
-          <View style={{ position: 'absolute', top: 0, left: -16 }}>
+          {/* Ranks on left file (1-8) */}
+          <View style={{ position: 'absolute', top: 0, left: 2 }}>
             {Array.from({ length: 8 }).map((_, i) => (
-              <View key={`r-${i}`} style={{ height: square, justifyContent: 'center' }}>
-                <Text style={{ color: '#666' }}>{orientation === 'white' ? 8 - i : i + 1}</Text>
+              <View key={`r-${i}`} style={{ height: square, justifyContent: 'flex-start', paddingTop: 2 }}>
+                <Text style={{ color: '#fff', fontSize: 10, fontWeight: '600', textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 }}>
+                  {orientation === 'white' ? 8 - i : i + 1}
+                </Text>
               </View>
             ))}
           </View>

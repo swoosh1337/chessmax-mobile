@@ -20,6 +20,13 @@ import { useTraining } from '@/src/context/TrainingContext';
 import { ratingStorage } from '@/src/utils/storage';
 import RatingModal from '@/src/components/RatingModal';
 import pieceMap from '@/src/assets/pieces/index';
+import TrainingModeSelector from '@/src/components/TrainingModeSelector';
+import InstructionDisplay from '@/src/components/InstructionDisplay';
+import { TrainingMode, TrainingModeId, MoveExplanation, TRAINING_MODES } from '@/src/types/trainingModes';
+
+// TEST MODE: Set to true to use local JSON file instead of backend
+const USE_LOCAL_TEST_DATA = true;
+const testScotchGame = USE_LOCAL_TEST_DATA ? require('../assets/test-scotch-game.json') : null;
 
 export default function TrainingScreen() {
   // Hooks
@@ -28,19 +35,38 @@ export default function TrainingScreen() {
   const { invalidateCache, updateUserProfile } = useLeaderboard();
   const { startSession, endSession } = useTraining();
 
-  // Get opening data from Expo Router params
+  // Get opening data from Expo Router params or use test data
   const params = useLocalSearchParams();
-  const initialOpening = params.openingData ? JSON.parse(params.openingData as string) : null;
+  const initialOpening = USE_LOCAL_TEST_DATA
+    ? testScotchGame
+    : (params.openingData ? JSON.parse(params.openingData as string) : null);
 
   // Variation management state
-  const [currentOpening, setCurrentOpening] = useState(initialOpening);
+  const [currentOpening, setCurrentOpening] = useState(() => {
+    if (initialOpening && !initialOpening.pgn && initialOpening.variations?.length > 0) {
+      return { ...initialOpening, ...initialOpening.variations[0] };
+    }
+    return initialOpening;
+  });
   const [currentMode, setCurrentMode] = useState<'series' | 'random'>('series');
   const [currentVariationIndex, setCurrentVariationIndex] = useState(0);
   const [variationStatuses, setVariationStatuses] = useState<Array<'pending' | 'success' | 'error'>>([]);
+
+  // Training mode state
+  const [trainingModeId, setTrainingModeId] = useState<TrainingModeId>('learn');
+  const trainingMode = new TrainingMode(trainingModeId);
+  const [currentExplanation, setCurrentExplanation] = useState<MoveExplanation | null>(null);
+  const [showUndoButton, setShowUndoButton] = useState(false);
+  const [moveHistory, setMoveHistory] = useState<any[]>([]);
   const [variationPickerOpen, setVariationPickerOpen] = useState(false);
+  const [modePickerOpen, setModePickerOpen] = useState(false);
 
   // Track completed variations to prevent double XP
   const [completedVariationIds, setCompletedVariationIds] = useState<Set<string>>(new Set());
+
+  // Streak tracking
+  const [currentStreak, setCurrentStreak] = useState(1);
+  const [weeklyProgress, setWeeklyProgress] = useState([true, false, false, false, false]); // [W, Th, F, Sa, Su]
 
   // Helper to generate unique ID for a variation
   const getUniqueVariationId = useCallback((index: number) => {
@@ -72,20 +98,20 @@ export default function TrainingScreen() {
           // Auto-advance to first uncompleted variation (only once per mount)
           if (!hasAutoAdvanced.current && opening?.variations?.length > 0) {
             hasAutoAdvanced.current = true;
-            
+
             let firstUncompletedIndex = 0;
             const variations = opening.variations;
-            
+
             for (let i = 0; i < variations.length; i++) {
               const vName = variations[i].name || `var_${i}`;
               const uid = `${opening.id}::${vName}`;
-              
+
               if (!completedSet.has(uid)) {
                 firstUncompletedIndex = i;
                 break;
               }
             }
-            
+
             // If found an uncompleted variation (and it's not the first one we're already on), switch to it
             if (firstUncompletedIndex > 0) {
               console.log('[Training] Auto-advancing to variation index:', firstUncompletedIndex);
@@ -101,6 +127,95 @@ export default function TrainingScreen() {
     fetchCompletions();
   }, [user, opening?.id]);
 
+  // Fetch user's streak data
+  useEffect(() => {
+    const fetchStreak = async () => {
+      if (!user) return;
+
+      try {
+        // Get user's practice sessions from the last 7 days
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+
+        const { data: sessions } = await supabase
+          .from('training_sessions')
+          .select('created_at')
+          .eq('user_id', user.id)
+          .gte('created_at', sevenDaysAgo.toISOString())
+          .order('created_at', { ascending: false });
+
+        if (sessions && sessions.length > 0) {
+          // Calculate current streak (consecutive days)
+          const today = new Date();
+          today.setHours(0, 0, 0, 0);
+
+          let streak = 0;
+          let checkDate = new Date(today);
+
+          for (let i = 0; i < 365; i++) { // Max 365 day streak
+            const dayStart = new Date(checkDate);
+            dayStart.setHours(0, 0, 0, 0);
+            const dayEnd = new Date(checkDate);
+            dayEnd.setHours(23, 59, 59, 999);
+
+            const practicedToday = sessions.some(s => {
+              const sessionDate = new Date(s.created_at);
+              return sessionDate >= dayStart && sessionDate <= dayEnd;
+            });
+
+            if (practicedToday) {
+              streak++;
+              checkDate.setDate(checkDate.getDate() - 1);
+            } else if (i === 0) {
+              // If no practice today, check yesterday
+              checkDate.setDate(checkDate.getDate() - 1);
+            } else {
+              break;
+            }
+          }
+
+          setCurrentStreak(Math.max(1, streak));
+
+          // Calculate weekly progress (last 5 days: W, Th, F, Sa, Su)
+          const weekProgress = [false, false, false, false, false];
+          const dayOfWeek = today.getDay(); // 0 = Sunday, 1 = Monday, etc.
+
+          // Map to our week starting from Wednesday (3)
+          // W=3, Th=4, F=5, Sa=6, Su=0
+          const weekDays = [3, 4, 5, 6, 0]; // Wednesday to Sunday
+
+          weekDays.forEach((targetDay, index) => {
+            let daysBack = 0;
+            if (targetDay <= dayOfWeek) {
+              daysBack = dayOfWeek - targetDay;
+            } else {
+              daysBack = 7 - (targetDay - dayOfWeek);
+            }
+
+            const checkDay = new Date(today);
+            checkDay.setDate(checkDay.getDate() - daysBack);
+            checkDay.setHours(0, 0, 0, 0);
+            const checkDayEnd = new Date(checkDay);
+            checkDayEnd.setHours(23, 59, 59, 999);
+
+            const practiced = sessions.some(s => {
+              const sessionDate = new Date(s.created_at);
+              return sessionDate >= checkDay && sessionDate <= checkDayEnd;
+            });
+
+            weekProgress[index] = practiced;
+          });
+
+          setWeeklyProgress(weekProgress);
+        }
+      } catch (err) {
+        console.error('[Training] Error fetching streak:', err);
+      }
+    };
+
+    fetchStreak();
+  }, [user]);
+
   // Use currentOpening instead of params
   const opening = currentOpening;
 
@@ -113,9 +228,10 @@ export default function TrainingScreen() {
     // console.log('Opening color:', opening?.color, '→', opening?.color === 'b' ? 'BLACK' : 'WHITE');
     // console.log('Variations:', opening?.variations?.length);
     // console.log('Initial orientation set to:', opening?.color === 'b' ? 'black' : 'white');
-    if (!opening?.pgn) {
-      console.error('❌ CRITICAL: No PGN received in TrainingScreen!');
-    }
+    // Note: PGN is stored in each variation, not at the top level
+    // if (!opening?.pgn) {
+    //   console.error('❌ CRITICAL: No PGN received in TrainingScreen!');
+    // }
     // console.log('=== END TRAINING SCREEN DEBUG ===');
   }, [opening]);
 
@@ -353,7 +469,7 @@ export default function TrainingScreen() {
 
   const findKingSquare = (color: string) => {
     const brd = engine.board;
-    const FILES = ['a','b','c','d','e','f','g','h'];
+    const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
     for (let r = 0; r < 8; r++) {
       for (let f = 0; f < 8; f++) {
         const p = brd[r]?.[f];
@@ -381,6 +497,9 @@ export default function TrainingScreen() {
     const moveIndex = Math.floor((totalMoves - 1) / 2);
     const expectedSan = move.color === 'w' ? sequence.white[moveIndex] : sequence.black[moveIndex];
 
+    // Add move to history for undo functionality
+    setMoveHistory(prev => [...prev, { move, fen: engine.fen }]);
+
     // console.log('✅ validateMove DEBUG:');
     // console.log('  - Player played:', move.san);
     // console.log('  - Expected:', expectedSan);
@@ -393,6 +512,17 @@ export default function TrainingScreen() {
       trainingCompleteRef.current = true;
       completionProcessingRef.current = true;
 
+      // In Learn Mode, just reset silently without showing completion modal or tracking XP
+      if (trainingMode.shouldShowExplanations()) {
+        playCompletionSound(true); // Play a success sound
+        // Reset after a short delay
+        setTimeout(() => {
+          reset();
+        }, 500);
+        return;
+      }
+
+      // Drill Mode: Show completion modal and track XP
       const success = errors === 0;
       playCompletionSound(success);
       setCompletionSuccess(success);
@@ -462,8 +592,8 @@ export default function TrainingScreen() {
             }
           }
 
-          // Only update profile if XP > 0
-          if (xpToAward > 0) {
+          // Only update profile if XP > 0 AND we're in a mode that tracks XP
+          if (xpToAward > 0 && trainingMode.shouldTrackXP()) {
             // Get current user profile
             const { data: profile, error: profileError } = await supabase
               .from('user_profiles')
@@ -498,11 +628,13 @@ export default function TrainingScreen() {
                   weekly_xp: newWeeklyXP,
                   level: newLevel,
                 });
-                
+
                 // Invalidate leaderboard cache to trigger refetch
                 invalidateCache();
               }
             }
+          } else if (!trainingMode.shouldTrackXP()) {
+            console.log('[Training] Learn mode - XP not tracked');
           }
 
           // Save variation completion to database (always, to record the attempt/practice)
@@ -569,7 +701,9 @@ export default function TrainingScreen() {
     };
 
     if (move.san !== expectedSan) {
-      // Wrong move
+      // Wrong move - handle based on training mode
+      const result = trainingMode.onIncorrectMove();
+
       setErrors((e) => e + 1);
       playIllegalMoveSound();
       H.error();
@@ -577,21 +711,36 @@ export default function TrainingScreen() {
       if (wrongMoveTimeout.current) clearTimeout(wrongMoveTimeout.current);
       wrongMoveTimeout.current = setTimeout(() => setWrongMoveSquare(null), 800);
 
-      // Undo the wrong move
-      engine.undo();
-      setTick((t) => t + 1);
+      if (result.action === 'ALLOW_UNDO') {
+        // Learn mode: keep the move, allow undo
+        setShowUndoButton(true);
+        // Don't undo automatically, let user choose
+      } else if (result.action === 'RESTART_VARIATION') {
+        // Drill mode: undo and maybe restart
+        engine.undo();
+        setTick((t) => t + 1);
+        // Could add auto-restart logic here if desired
+      } else {
+        // Default: undo the wrong move
+        engine.undo();
+        setTick((t) => t + 1);
+      }
       return;
     }
 
     // Clear selection immediately after player's successful move
     setSelected(null);
     setLegalTargets([]);
+    setShowUndoButton(false); // Clear undo button on correct move
     // Also clear hint highlights and wrong move indicator (and their timeouts)
     if (hintTimeout.current) clearTimeout(hintTimeout.current);
     setHintSource(null);
     setHintTarget(null);
     if (wrongMoveTimeout.current) clearTimeout(wrongMoveTimeout.current);
     setWrongMoveSquare(null);
+
+    // Update explanation for next move
+    updateCurrentExplanation();
 
     // Correct move: auto-play opponent response if available
     const oppSan = getOpponentResponse();
@@ -607,7 +756,7 @@ export default function TrainingScreen() {
           if (engine.history().length >= totalExpectedMoves) {
             finalizeCompletion();
           }
-        } catch {}
+        } catch { }
       }, 300);
     } else {
       // No opponent reply expected; check completion now
@@ -806,6 +955,77 @@ export default function TrainingScreen() {
     }
   };
 
+  // Function to update current explanation based on position
+  const updateCurrentExplanation = () => {
+    console.log('🔍 updateCurrentExplanation called');
+    console.log('  - shouldShowExplanations:', trainingMode.shouldShowExplanations());
+    console.log('  - opening?.variations:', opening?.variations?.length);
+
+    if (!trainingMode.shouldShowExplanations()) {
+      setCurrentExplanation(null);
+      return;
+    }
+
+    // Get current variation data
+    const variation = opening?.variations?.[currentVariationIndex];
+    console.log('  - variation:', variation);
+    console.log('  - variation?.moves:', variation?.moves?.length);
+
+    if (!variation?.moves) {
+      console.log('  ⚠️ No moves array in variation - explanations not available');
+      setCurrentExplanation(null);
+      return;
+    }
+
+    // Get the next move index (the move the player should make)
+    const totalMoves = engine.history().length;
+    const nextMoveIndex = totalMoves;
+
+    console.log('  - nextMoveIndex:', nextMoveIndex);
+
+    // Find the explanation for this move
+    const moveData = variation.moves?.[nextMoveIndex];
+    console.log('  - moveData:', moveData);
+
+    if (moveData?.explanation) {
+      console.log('  ✅ Setting explanation:', moveData.explanation.text);
+      setCurrentExplanation(moveData.explanation);
+    } else {
+      console.log('  ⚠️ No explanation for this move');
+      setCurrentExplanation(null);
+    }
+  };
+
+  // Update explanation when training mode or position changes
+  useEffect(() => {
+    updateCurrentExplanation();
+  }, [trainingModeId, tick, currentVariationIndex, opening]);
+
+  // Undo handler for Learn mode
+  const handleUndo = () => {
+    if (!trainingMode.canUndo() || moveHistory.length === 0) return;
+
+    // Undo last move
+    engine.undo();
+    setMoveHistory(prev => prev.slice(0, -1));
+    setTick(t => t + 1);
+    setShowUndoButton(false);
+    setWrongMoveSquare(null);
+
+    // Clear selection
+    setSelected(null);
+    setLegalTargets([]);
+
+    H.ok();
+  };
+
+  // Handle mode change
+  const handleModeChange = (newMode: TrainingModeId) => {
+    setTrainingModeId(newMode);
+    setShowUndoButton(false);
+    updateCurrentExplanation();
+  };
+
   useEffect(() => {
     // When orientation or opening (variation) changes, fully reset board state
     reset();
@@ -817,7 +1037,7 @@ export default function TrainingScreen() {
       setVariationStatuses((prev) => {
         // Create new array based on variations
         const next = new Array(opening.variations.length).fill('pending');
-        
+
         // Preserve current session progress (if better than pending)
         prev.forEach((status, idx) => {
           if (idx < next.length && status !== 'pending') {
@@ -872,6 +1092,14 @@ export default function TrainingScreen() {
         <View style={{ width: 40 }} />
       </View>
 
+      {/* Instruction Display (Learn Mode only) - Shows where mode selector was */}
+      {trainingMode.shouldShowExplanations() && currentExplanation && (
+        <InstructionDisplay
+          explanation={currentExplanation}
+          visible={true}
+        />
+      )}
+
       {/* Chess Board */}
       <View style={styles.boardContainer}>
         <GraphicalBoard
@@ -887,7 +1115,7 @@ export default function TrainingScreen() {
           checkSquare={checkSquare}
           onSquarePress={onSquarePress}
           onDropMove={onDropMove}
-          showCoords={false}
+          showCoords={true}
           showCornerMarkers={true}
           playerColor={playerColor}
         />
@@ -905,6 +1133,7 @@ export default function TrainingScreen() {
       <View style={styles.controlsContainer}>
         <TrainingControls
           onHint={handleHint}
+          onModePress={() => setModePickerOpen(true)}
           onSeriesMode={handleSeriesMode}
           onRandomMode={handleRandomMode}
           currentMode={currentMode}
@@ -916,10 +1145,19 @@ export default function TrainingScreen() {
           hasMoves={engine.history().length > (playerColor === 'b' ? 1 : 0)}
         />
 
-        {/* Reset Button */}
-        <TouchableOpacity style={styles.resetButton} onPress={reset}>
-          <Text style={styles.resetButtonText}>↻ Reset</Text>
-        </TouchableOpacity>
+        {/* Undo Button (Learn Mode only) */}
+        {trainingMode.canUndo() && showUndoButton && (
+          <TouchableOpacity style={styles.undoButton} onPress={handleUndo}>
+            <Text style={styles.undoButtonText}>↩️ Undo</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Reset Button - Hidden in Learn Mode */}
+        {!trainingMode.shouldShowExplanations() && (
+          <TouchableOpacity style={styles.resetButton} onPress={reset}>
+            <Text style={styles.resetButtonText}>↻ Reset</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {/* Completion Modal */}
@@ -939,6 +1177,8 @@ export default function TrainingScreen() {
         xpEarned={earnedXP}
         correctCount={playerColor === 'w' ? sequence.white?.length || 0 : sequence.black?.length || 0}
         incorrectCount={errors}
+        currentStreak={currentStreak}
+        weeklyProgress={weeklyProgress}
       />
 
       {/* Variation Picker Modal */}
@@ -971,10 +1211,12 @@ export default function TrainingScreen() {
                           'Unlock all variations with ChessMaxx Premium!',
                           [
                             { text: 'Maybe Later', style: 'cancel' },
-                            { text: 'Unlock Premium', onPress: () => {
-                              setVariationPickerOpen(false);
-                              router.push('/paywall');
-                            }}
+                            {
+                              text: 'Unlock Premium', onPress: () => {
+                                setVariationPickerOpen(false);
+                                router.push('/paywall');
+                              }
+                            }
                           ]
                         );
                         return;
@@ -1009,6 +1251,49 @@ export default function TrainingScreen() {
             <TouchableOpacity
               style={styles.modalCloseButton}
               onPress={() => setVariationPickerOpen(false)}
+            >
+              <Text style={styles.modalCloseText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Mode Picker Modal */}
+      <Modal
+        visible={modePickerOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setModePickerOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Select Training Mode</Text>
+            <View style={styles.modeOptionsContainer}>
+              {Object.values(TRAINING_MODES).map((mode) => (
+                <TouchableOpacity
+                  key={mode.id}
+                  style={[
+                    styles.modeOption,
+                    trainingModeId === mode.id && styles.modeOptionActive,
+                    trainingModeId === mode.id && { borderColor: mode.color, backgroundColor: mode.color + '15' }
+                  ]}
+                  onPress={() => {
+                    handleModeChange(mode.id);
+                    setModePickerOpen(false);
+                  }}
+                >
+                  <Text style={styles.modeOptionEmoji}>{mode.emoji}</Text>
+                  <Text style={[
+                    styles.modeOptionName,
+                    trainingModeId === mode.id && styles.modeOptionNameActive
+                  ]}>{mode.name}</Text>
+                  <Text style={styles.modeOptionDescription}>{mode.description}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TouchableOpacity
+              style={styles.modalCloseButton}
+              onPress={() => setModePickerOpen(false)}
             >
               <Text style={styles.modalCloseText}>Close</Text>
             </TouchableOpacity>
@@ -1083,6 +1368,20 @@ const styles = StyleSheet.create({
   },
   controlsContainer: {
     paddingHorizontal: 16,
+  },
+  undoButton: {
+    marginTop: 16,
+    backgroundColor: colors.card,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderRadius: 12,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  undoButtonText: {
+    color: colors.primary,
+    fontSize: 16,
+    fontWeight: '700',
   },
   resetButton: {
     marginTop: 16,
@@ -1191,5 +1490,38 @@ const styles = StyleSheet.create({
     color: colors.background,
     fontSize: 16,
     fontWeight: '600',
+  },
+  modeOptionsContainer: {
+    gap: 16,
+    marginVertical: 8,
+  },
+  modeOption: {
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    backgroundColor: colors.card,
+  },
+  modeOptionActive: {
+    borderWidth: 3,
+  },
+  modeOptionEmoji: {
+    fontSize: 48,
+    marginBottom: 12,
+  },
+  modeOptionName: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.foreground,
+    marginBottom: 8,
+  },
+  modeOptionNameActive: {
+    color: colors.primary,
+  },
+  modeOptionDescription: {
+    fontSize: 14,
+    color: colors.textSubtle,
+    textAlign: 'center',
   },
 });
