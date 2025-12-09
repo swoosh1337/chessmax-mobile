@@ -7,12 +7,14 @@ interface InstructionDisplayProps {
     explanation: MoveExplanation | null;
     visible: boolean;
     style?: any;
+    isLearnMode?: boolean; // Make box taller in Learn mode
 }
 
 export default function InstructionDisplay({
     explanation,
     visible,
-    style
+    style,
+    isLearnMode = false
 }: InstructionDisplayProps) {
     if (!visible || !explanation) return null;
 
@@ -33,7 +35,11 @@ export default function InstructionDisplay({
     const conceptColor = getConceptColor(explanation.concept);
 
     return (
-        <View style={[styles.container, style]}>
+        <View style={[
+            styles.container,
+            isLearnMode && styles.containerLearnMode, // Taller in Learn mode
+            style
+        ]}>
             {/* Concept badge */}
             <View style={[styles.conceptBadge, { backgroundColor: conceptColor + '20' }]}>
                 <View style={[styles.conceptDot, { backgroundColor: conceptColor }]} />
@@ -67,8 +73,11 @@ const styles = StyleSheet.create({
         shadowOpacity: 0.1,
         shadowRadius: 4,
         elevation: 3,
-        minHeight: 140, // Fixed minimum height to prevent resizing
-        justifyContent: 'space-between', // Distribute content
+        height: 140, // Fixed height to prevent resizing when text changes
+        justifyContent: 'flex-start', // Align content to top
+    },
+    containerLearnMode: {
+        height: 220, // Much taller in Learn mode to fit longest AI explanations
     },
     conceptBadge: {
         flexDirection: 'row',
@@ -92,9 +101,9 @@ const styles = StyleSheet.create({
     },
     instructionText: {
         color: colors.foreground,
-        fontSize: 15,
+        fontSize: 16, // Increased from 15 for better readability
         fontWeight: '500',
-        lineHeight: 22,
+        lineHeight: 24, // Increased from 22 for better spacing
     },
     decorativeLine: {
         height: 2,

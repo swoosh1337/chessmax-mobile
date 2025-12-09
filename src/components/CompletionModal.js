@@ -87,7 +87,8 @@ export default function CompletionModal({
   correctCount = 0,
   incorrectCount = 0,
   currentStreak = 1,
-  weeklyProgress = [true, false, false, false, false]
+  weeklyProgress = [true, false, false, false, false],
+  showStreakCelebration = true // Only show streak celebration once per day
 }) {
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.8)).current;
@@ -361,10 +362,10 @@ export default function CompletionModal({
           ]}
         >
           {/* Glow effect behind flame */}
-          <Animated.View style={[styles.flameGlow, { opacity: glowPulse }]} />
+          {showStreakCelebration && <Animated.View style={[styles.flameGlow, { opacity: glowPulse }]} />}
 
-          {/* Streak Celebration Section */}
-          <View style={styles.streakContainer}>
+          {/* Streak Celebration Section - Only shown once per day */}
+          {showStreakCelebration && <View style={styles.streakContainer}>
             {/* Animated Flame */}
             <Animated.View
               style={[
@@ -438,7 +439,7 @@ export default function CompletionModal({
                 );
               })}
             </Animated.View>
-          </View>
+          </View>}
 
           {/* Stats Section */}
           <Animated.View
@@ -548,7 +549,7 @@ const styles = StyleSheet.create({
   },
   flameContainer: {
     position: 'relative',
-    marginBottom: 8,
+    marginBottom: 20, // Increased from 8 to add more space between flame and number
   },
   flameEmoji: {
     fontSize: 90,

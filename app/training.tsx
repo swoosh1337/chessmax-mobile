@@ -3,6 +3,7 @@ import { StyleSheet, Text, TouchableOpacity, View, Modal, ScrollView, Alert, Act
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Asset } from 'expo-asset';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import TrainingControls from '@/src/components/TrainingControls';
 import CompletionModal from '@/src/components/CompletionModal';
 import GraphicalBoard from '@/src/components/GraphicalBoard';
@@ -24,9 +25,12 @@ import TrainingModeSelector from '@/src/components/TrainingModeSelector';
 import InstructionDisplay from '@/src/components/InstructionDisplay';
 import { TrainingMode, TrainingModeId, MoveExplanation, TRAINING_MODES } from '@/src/types/trainingModes';
 
-// TEST MODE: Set to true to use local JSON file instead of backend
-const USE_LOCAL_TEST_DATA = true;
-const testScotchGame = USE_LOCAL_TEST_DATA ? require('../assets/test-scotch-game.json') : null;
+// TEST MODE: Set to true to use local JSON files for Scotch Game
+const USE_LOCAL_TEST_DATA = false;
+
+// Load AI-enhanced Scotch Game files from assets
+const scotchGameL1 = USE_LOCAL_TEST_DATA ? require('../assets/scotch-game-l1.json') : null;
+const scotchGameL2 = USE_LOCAL_TEST_DATA ? require('../assets/scotch-game-l2.json') : null;
 
 export default function TrainingScreen() {
   // Hooks
@@ -37,8 +41,22 @@ export default function TrainingScreen() {
 
   // Get opening data from Expo Router params or use test data
   const params = useLocalSearchParams();
+
+  // Smart test data: Use AI-enhanced files based on level selection
+  const getTestData = () => {
+    if (!USE_LOCAL_TEST_DATA) return null;
+
+    const openingData = params.openingData ? JSON.parse(params.openingData as string) : null;
+    const level = openingData?.level || 1;
+
+    console.log('🧪 TEST MODE: Loading Scotch Game Level', level);
+
+    if (level === 2) return scotchGameL2;
+    return scotchGameL1; // Default to Level 1
+  };
+
   const initialOpening = USE_LOCAL_TEST_DATA
-    ? testScotchGame
+    ? getTestData()
     : (params.openingData ? JSON.parse(params.openingData as string) : null);
 
   // Variation management state
@@ -52,8 +70,16 @@ export default function TrainingScreen() {
   const [currentVariationIndex, setCurrentVariationIndex] = useState(0);
   const [variationStatuses, setVariationStatuses] = useState<Array<'pending' | 'success' | 'error'>>([]);
 
-  // Training mode state
-  const [trainingModeId, setTrainingModeId] = useState<TrainingModeId>('learn');
+  // Check if the opening has moves with explanations (for Learn mode availability)
+  const hasMovesWithExplanations = useMemo(() => {
+    const variations = currentOpening?.variations;
+    if (!Array.isArray(variations) || variations.length === 0) return false;
+    // Check if at least one variation has moves array
+    return variations.some((v: any) => Array.isArray(v?.moves) && v.moves.length > 0);
+  }, [currentOpening?.variations]);
+
+  // Training mode state - default to 'drill' for all openings
+  const [trainingModeId, setTrainingModeId] = useState<TrainingModeId>('drill');
   const trainingMode = new TrainingMode(trainingModeId);
   const [currentExplanation, setCurrentExplanation] = useState<MoveExplanation | null>(null);
   const [showUndoButton, setShowUndoButton] = useState(false);
@@ -67,6 +93,7 @@ export default function TrainingScreen() {
   // Streak tracking
   const [currentStreak, setCurrentStreak] = useState(1);
   const [weeklyProgress, setWeeklyProgress] = useState([true, false, false, false, false]); // [W, Th, F, Sa, Su]
+  const [showStreakCelebration, setShowStreakCelebration] = useState(true); // Show streak celebration once per day
 
   // Helper to generate unique ID for a variation
   const getUniqueVariationId = useCallback((index: number) => {
@@ -216,6 +243,108 @@ export default function TrainingScreen() {
     fetchStreak();
   }, [user]);
 
+  // Check if we should show streak celebration (once per day after 12 PM)
+  useEffect(() => {
+    const checkStreakCelebration = async () => {
+      try {
+        const lastShownStr = await AsyncStorage.getItem('@last_streak_celebration');
+        const now = new Date();
+
+        console.log('[Training] Checking streak celebration...');
+        console.log('[Training] Current time:', now.toISOString());
+        console.log('[Training] Last shown:', lastShownStr);
+
+        if (!lastShownStr) {
+          // Never shown before, show it
+          console.log('[Training] Never shown before, showing celebration');
+          setShowStreakCelebration(true);
+          return;
+        }
+
+        const lastShown = new Date(lastShownStr);
+
+        // Get today at 12 PM
+        const today12PM = new Date();
+        today12PM.setHours(12, 0, 0, 0);
+
+        // Get the date of last shown at 12 PM
+        const lastShownDate = new Date(lastShown);
+        lastShownDate.setHours(12, 0, 0, 0);
+
+        console.log('[Training] Today 12 PM:', today12PM.toISOString());
+        console.log('[Training] Last shown date 12 PM:', lastShownDate.toISOString());
+        console.log('[Training] Now >= today12PM?', now >= today12PM);
+        console.log('[Training] Different days?', today12PM.getTime() !== lastShownDate.getTime());
+
+        // Show if:
+        // 1. Current time is after 12 PM today AND
+        // 2. Last shown was on a different day (comparing 12 PM timestamps)
+        if (now >= today12PM && today12PM.getTime() !== lastShownDate.getTime()) {
+          console.log('[Training] New day after 12 PM, showing celebration');
+          setShowStreakCelebration(true);
+        } else {
+          console.log('[Training] Already shown today or before 12 PM, hiding celebration');
+          setShowStreakCelebration(false);
+        }
+      } catch (error) {
+        console.error('[Training] Error checking streak celebration:', error);
+        setShowStreakCelebration(true); // Default to showing it
+      }
+    };
+
+    checkStreakCelebration();
+  }, []);
+
+  // Mark streak celebration as shown when modal opens
+  useEffect(() => {
+    const markStreakShown = async () => {
+      if (completionOpen && showStreakCelebration) {
+        try {
+          await AsyncStorage.setItem('@last_streak_celebration', new Date().toISOString());
+        } catch (error) {
+          console.error('[Training] Error saving streak celebration timestamp:', error);
+        }
+      }
+    };
+
+    markStreakShown();
+  }, [completionOpen, showStreakCelebration]);
+
+  // Load saved training mode preference on mount
+  useEffect(() => {
+    const loadTrainingMode = async () => {
+      try {
+        const savedMode = await AsyncStorage.getItem('@training_mode');
+        if (savedMode && (savedMode === 'learn' || savedMode === 'drill')) {
+          // Only set 'learn' mode if explanations are available
+          if (savedMode === 'learn' && !hasMovesWithExplanations) {
+            setTrainingModeId('drill');
+          } else {
+            setTrainingModeId(savedMode as TrainingModeId);
+          }
+        }
+        // If no saved preference, keep default (drill) - no else needed
+      } catch (error) {
+        console.error('[Training] Error loading training mode:', error);
+      }
+    };
+
+    loadTrainingMode();
+  }, [hasMovesWithExplanations]);
+
+  // Save training mode preference when it changes
+  useEffect(() => {
+    const saveTrainingMode = async () => {
+      try {
+        await AsyncStorage.setItem('@training_mode', trainingModeId);
+      } catch (error) {
+        console.error('[Training] Error saving training mode:', error);
+      }
+    };
+
+    saveTrainingMode();
+  }, [trainingModeId]);
+
   // Use currentOpening instead of params
   const opening = currentOpening;
 
@@ -255,6 +384,13 @@ export default function TrainingScreen() {
 
     initSession();
   }, [user, opening, currentVariationIndex]);
+
+  console.log('🎯 TRAINING SCREEN - Opening data:', {
+    name: opening?.name,
+    color: opening?.color,
+    level: opening?.level,
+    variations: opening?.variations?.length
+  });
 
   const [engine] = useState(() => new ChessEngine());
   const [orientation, setOrientation] = useState(opening?.color === 'b' ? 'black' : 'white');
@@ -512,13 +648,29 @@ export default function TrainingScreen() {
       trainingCompleteRef.current = true;
       completionProcessingRef.current = true;
 
-      // In Learn Mode, just reset silently without showing completion modal or tracking XP
+      // In Learn Mode, advance to next variation in series mode or reset
       if (trainingMode.shouldShowExplanations()) {
         playCompletionSound(true); // Play a success sound
-        // Reset after a short delay
-        setTimeout(() => {
-          reset();
-        }, 500);
+
+        // In series mode, automatically advance to next variation
+        console.log('🔄 Learn mode completion check:', {
+          currentMode,
+          hasVariations: !!opening?.variations,
+          variationCount: opening?.variations?.length,
+          shouldAutoAdvance: currentMode === 'series' && opening?.variations?.length > 1
+        });
+
+        if (currentMode === 'series' && opening?.variations?.length > 1) {
+          console.log('✅ Auto-advancing to next variation in 500ms');
+          setTimeout(() => {
+            handleNextVariation();
+          }, 500);
+        } else {
+          console.log('⚠️ Not auto-advancing, resetting instead');
+          setTimeout(() => {
+            reset();
+          }, 500);
+        }
         return;
       }
 
@@ -1097,6 +1249,7 @@ export default function TrainingScreen() {
         <InstructionDisplay
           explanation={currentExplanation}
           visible={true}
+          isLearnMode={trainingMode.id === 'learn'}
         />
       )}
 
@@ -1143,6 +1296,7 @@ export default function TrainingScreen() {
           variationStatuses={variationStatuses}
           onPickVariation={() => setVariationPickerOpen(true)}
           hasMoves={engine.history().length > (playerColor === 'b' ? 1 : 0)}
+          hideVariationSelector={trainingMode.id === 'learn'} // Hide in Learn mode for more space
         />
 
         {/* Undo Button (Learn Mode only) */}
@@ -1179,6 +1333,7 @@ export default function TrainingScreen() {
         incorrectCount={errors}
         currentStreak={currentStreak}
         weeklyProgress={weeklyProgress}
+        showStreakCelebration={showStreakCelebration}
       />
 
       {/* Variation Picker Modal */}
@@ -1269,27 +1424,38 @@ export default function TrainingScreen() {
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Select Training Mode</Text>
             <View style={styles.modeOptionsContainer}>
-              {Object.values(TRAINING_MODES).map((mode) => (
-                <TouchableOpacity
-                  key={mode.id}
-                  style={[
-                    styles.modeOption,
-                    trainingModeId === mode.id && styles.modeOptionActive,
-                    trainingModeId === mode.id && { borderColor: mode.color, backgroundColor: mode.color + '15' }
-                  ]}
-                  onPress={() => {
-                    handleModeChange(mode.id);
-                    setModePickerOpen(false);
-                  }}
-                >
-                  <Text style={styles.modeOptionEmoji}>{mode.emoji}</Text>
-                  <Text style={[
-                    styles.modeOptionName,
-                    trainingModeId === mode.id && styles.modeOptionNameActive
-                  ]}>{mode.name}</Text>
-                  <Text style={styles.modeOptionDescription}>{mode.description}</Text>
-                </TouchableOpacity>
-              ))}
+              {Object.values(TRAINING_MODES).map((mode) => {
+                // Learn mode is disabled if no explanations available
+                const isDisabled = mode.id === 'learn' && !hasMovesWithExplanations;
+
+                return (
+                  <TouchableOpacity
+                    key={mode.id}
+                    style={[
+                      styles.modeOption,
+                      trainingModeId === mode.id && styles.modeOptionActive,
+                      trainingModeId === mode.id && { borderColor: mode.color, backgroundColor: mode.color + '15' },
+                      isDisabled && styles.modeOptionDisabled
+                    ]}
+                    onPress={() => {
+                      if (isDisabled) return;
+                      handleModeChange(mode.id);
+                      setModePickerOpen(false);
+                    }}
+                    disabled={isDisabled}
+                  >
+                    <Text style={[styles.modeOptionEmoji, isDisabled && styles.modeOptionDisabledText]}>{mode.emoji}</Text>
+                    <Text style={[
+                      styles.modeOptionName,
+                      trainingModeId === mode.id && styles.modeOptionNameActive,
+                      isDisabled && styles.modeOptionDisabledText
+                    ]}>{mode.name}</Text>
+                    <Text style={[styles.modeOptionDescription, isDisabled && styles.modeOptionDisabledText]}>
+                      {isDisabled ? 'Not available for this opening' : mode.description}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
             </View>
             <TouchableOpacity
               style={styles.modalCloseButton}
@@ -1345,7 +1511,7 @@ const styles = StyleSheet.create({
   },
   boardContainer: {
     alignItems: 'center',
-    marginVertical: 20,
+    marginVertical: 8, // Reduced from 20 to move board up and make variation component visible
     position: 'relative',
   },
   loadingOverlay: {
@@ -1523,5 +1689,13 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.textSubtle,
     textAlign: 'center',
+  },
+  modeOptionDisabled: {
+    opacity: 0.4,
+    borderColor: colors.border,
+    backgroundColor: colors.card,
+  },
+  modeOptionDisabledText: {
+    color: colors.textSubtle,
   },
 });

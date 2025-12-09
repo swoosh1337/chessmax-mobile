@@ -14,7 +14,8 @@ export default function TrainingControls({
   progressStatus = 'neutral', // 'neutral' | 'success' | 'error'
   variationStatuses = [], // per-variation: 'pending' | 'success' | 'error'
   onPickVariation,
-  hasMoves = false
+  hasMoves = false,
+  hideVariationSelector = false // Hide variation selector in Learn mode
 }) {
   const filledColor = progressStatus === 'success'
     ? colors.success
@@ -72,59 +73,61 @@ export default function TrainingControls({
         </TouchableOpacity>
       </View>
 
-      {/* Variation Progress + Selector - Redesigned */}
-      <TouchableOpacity onPress={onPickVariation} style={styles.variationSelector}>
-        <View style={styles.variationContent}>
-          {/* Top Row: Variation Name + Status Badge */}
-          <View style={styles.variationHeader}>
-            <Text style={styles.variationText} numberOfLines={1}>
-              {variationLabel}
-            </Text>
-            {progressStatus === 'success' && (
-              <View style={styles.statusBadge}>
-                <Text style={styles.statusIcon}>✓</Text>
-              </View>
-            )}
-            {progressStatus === 'error' && (
-              <View style={[styles.statusBadge, styles.statusBadgeError]}>
-                <Text style={styles.statusIconError}>✗</Text>
-              </View>
-            )}
-          </View>
-
-          {/* Bottom Row: Progress + Variation Counter */}
-          <View style={styles.variationFooter}>
-            <View style={styles.progressInfo}>
-              {/* Progress Bar */}
-              <View style={styles.progressBarContainer}>
-                <View
-                  style={[
-                    styles.progressBarFill,
-                    {
-                      width: `${progress.total > 0 ? (progress.filled / progress.total) * 100 : 0}%`,
-                      backgroundColor: filledColor
-                    }
-                  ]}
-                />
-              </View>
-              {/* Progress Text */}
-              <Text style={styles.progressText}>
-                {progress.filled}/{progress.total} moves
+      {/* Variation Progress + Selector - Hidden in Learn mode */}
+      {!hideVariationSelector && (
+        <TouchableOpacity onPress={onPickVariation} style={styles.variationSelector}>
+          <View style={styles.variationContent}>
+            {/* Top Row: Variation Name + Status Badge */}
+            <View style={styles.variationHeader}>
+              <Text style={styles.variationText} numberOfLines={1}>
+                {variationLabel}
               </Text>
+              {progressStatus === 'success' && (
+                <View style={styles.statusBadge}>
+                  <Text style={styles.statusIcon}>✓</Text>
+                </View>
+              )}
+              {progressStatus === 'error' && (
+                <View style={[styles.statusBadge, styles.statusBadgeError]}>
+                  <Text style={styles.statusIconError}>✗</Text>
+                </View>
+              )}
             </View>
 
-            {/* Variation Counter + Summary */}
-            {variationStatuses.length > 0 && (
-              <View style={styles.variationSummary}>
-                <Text style={styles.variationCounter}>
-                  {variationStatuses.filter(s => s !== 'pending').length}/{variationStatuses.length}
+            {/* Bottom Row: Progress + Variation Counter */}
+            <View style={styles.variationFooter}>
+              <View style={styles.progressInfo}>
+                {/* Progress Bar */}
+                <View style={styles.progressBarContainer}>
+                  <View
+                    style={[
+                      styles.progressBarFill,
+                      {
+                        width: `${progress.total > 0 ? (progress.filled / progress.total) * 100 : 0}%`,
+                        backgroundColor: filledColor
+                      }
+                    ]}
+                  />
+                </View>
+                {/* Progress Text */}
+                <Text style={styles.progressText}>
+                  {progress.filled}/{progress.total} moves
                 </Text>
-                <Ionicons name="chevron-down" size={16} color={colors.textSubtle} />
               </View>
-            )}
+
+              {/* Variation Counter + Summary */}
+              {variationStatuses.length > 0 && (
+                <View style={styles.variationSummary}>
+                  <Text style={styles.variationCounter}>
+                    {variationStatuses.filter(s => s !== 'pending').length}/{variationStatuses.length}
+                  </Text>
+                  <Ionicons name="chevron-down" size={16} color={colors.textSubtle} />
+                </View>
+              )}
+            </View>
           </View>
-        </View>
-      </TouchableOpacity>
+        </TouchableOpacity>
+      )}
     </View>
   );
 }

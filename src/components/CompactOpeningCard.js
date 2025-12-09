@@ -65,13 +65,18 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
 
   // Calculate stats
   const totalVariations = opening?.totalVariations || 0;
+  const currentVariations = levelData?.variations?.length || 0;
+
+  // Debug logging
+  console.log(`📊 ${opening?.name}:`);
+  console.log(`   Selected: ${selectedColor} L${selectedLevel}`);
+  console.log(`   Current variations: ${currentVariations}`);
+  console.log(`   Level data exists:`, !!levelData);
+  console.log(`   Level data name:`, levelData?.name);
 
   // Handle color selection
   const handleColorSelect = (color) => {
-    // console.log(`🎨 Color selected: ${color} for ${opening?.name}`);
-    // console.log(`   whitelevels[1].gif:`, whitelevels?.[1]?.gif);
-    // console.log(`   blacklevels[1].gif:`, blacklevels?.[1]?.gif);
-    // console.log(`   opening.gif:`, opening?.gif);
+    console.log(`🎨 Color selected: ${color} for ${opening?.name}`);
     setSelectedColor(color);
     setImageKey(prev => prev + 1); // Force image reload
   };
@@ -98,8 +103,6 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
             }}
             style={[styles.boardImage, isCurrentLevelLocked && styles.boardImageLocked]}
             resizeMode="cover"
-            // onLoadStart={() => console.log(`🖼️ Loading image for ${opening?.name} (${selectedColor} L${selectedLevel}): ${imageUrl}`)}
-            // onLoad={() => console.log(`✅ Image loaded successfully`)}
             onError={(error) => console.error(`❌ Failed to load image for ${opening?.name}:`, error.nativeEvent)}
           />
         ) : (
@@ -125,9 +128,9 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
           {opening?.name || 'Opening'}
         </Text>
 
-        {/* Stats */}
+        {/* Stats - Show current level's variations */}
         <Text style={styles.stats}>
-          {totalVariations} vars · {availableLevels.length} lvl{availableLevels.length !== 1 ? 's' : ''}
+          {currentVariations} vars · L{selectedLevel}
         </Text>
 
         {/* Level Selector - Only show available levels */}

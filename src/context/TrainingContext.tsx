@@ -188,8 +188,9 @@ export function TrainingProvider({ children }: { children: React.ReactNode }) {
 
       setCurrentSession(data);
       return data.id;
-    } catch (error) {
+    } catch (error: any) {
       console.error('[Training] Error starting session:', error);
+      console.error('[Training] Error details:', error.message, error.code, error.details);
       throw error;
     }
   }, [user]);
