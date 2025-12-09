@@ -32,6 +32,18 @@ const USE_LOCAL_TEST_DATA = false;
 const scotchGameL1 = USE_LOCAL_TEST_DATA ? require('../assets/scotch-game-l1.json') : null;
 const scotchGameL2 = USE_LOCAL_TEST_DATA ? require('../assets/scotch-game-l2.json') : null;
 
+// Helper to clean opening name for display (removes V2/V3 prefix, "for white/black", "lvl X")
+function cleanOpeningName(name: string): string {
+  if (!name) return 'Training';
+  return name
+    .replace(/^V\d+\s+/, '') // Remove V2, V3, etc.
+    .replace(/\s*for\s+(white|black)/gi, '') // Remove "for white" or "for black"
+    .replace(/\s*lvl?\s*\d+/gi, '') // Remove "lvl 1", "lvl 2", etc.
+    .replace(/\s*level\s*\d+/gi, '') // Remove "level 1", etc.
+    .replace(/\s*-\s*$/, '') // Remove trailing dash
+    .trim();
+}
+
 export default function TrainingScreen() {
   // Hooks
   const { user } = useAuth();
@@ -86,6 +98,7 @@ export default function TrainingScreen() {
   const [moveHistory, setMoveHistory] = useState<any[]>([]);
   const [variationPickerOpen, setVariationPickerOpen] = useState(false);
   const [modePickerOpen, setModePickerOpen] = useState(false);
+  const [learnCompleteOpen, setLearnCompleteOpen] = useState(false); // Learn mode completion modal
 
   // Track completed variations to prevent double XP
   const [completedVariationIds, setCompletedVariationIds] = useState<Set<string>>(new Set());
@@ -532,6 +545,9 @@ export default function TrainingScreen() {
     if (index < 0 || index >= variations.length) return;
 
     const newVariation = variations[index];
+    console.log('🔄 switchToVariation:', { index, name: newVariation?.name });
+
+    // Update state
     setCurrentVariationIndex(index);
     setCurrentOpening({ ...opening, ...newVariation });
     setErrors(0);
@@ -539,7 +555,42 @@ export default function TrainingScreen() {
     setStartTime(Date.now());
     trainingCompleteRef.current = false;
 
-    // Reset will be called by useEffect when opening changes
+    // Reset chess engine and board state
+    engine.reset();
+
+    // If playing as black, make the first white move automatically
+    const newPgn = newVariation?.pgn || '';
+    const newSequence = parsePGN(newPgn);
+    const newPlayerColor = (opening?.color || 'w') === 'b' ? 'b' : 'w';
+
+    if (newPlayerColor === 'b' && newSequence.white?.[0]) {
+      try {
+        engine.move(newSequence.white[0]);
+        console.log('🔄 Made first white move for black player:', newSequence.white[0]);
+      } catch (err) {
+        console.error('❌ Error making first white move:', err);
+      }
+    }
+
+    // Reset UI state
+    setSelected(null);
+    setLegalTargets([]);
+    setLastMove({ from: null, to: null });
+    setHintSource(null);
+    setHintTarget(null);
+    setWrongMoveSquare(null);
+    setCheckSquare(null);
+    setMoveHistory([]);
+    setShowUndoButton(false);
+    setCurrentExplanation(null);
+    setTick((t) => t + 1);
+
+    // Update explanation for first move after a short delay
+    setTimeout(() => {
+      updateCurrentExplanation();
+    }, 100);
+
+    console.log('✅ Board reset complete for variation:', newVariation?.name);
   };
 
   const handleNextVariation = () => {
@@ -648,29 +699,17 @@ export default function TrainingScreen() {
       trainingCompleteRef.current = true;
       completionProcessingRef.current = true;
 
-      // In Learn Mode, advance to next variation in series mode or reset
+      // In Learn Mode, show completion modal with options
       if (trainingMode.shouldShowExplanations()) {
         playCompletionSound(true); // Play a success sound
 
-        // In series mode, automatically advance to next variation
-        console.log('🔄 Learn mode completion check:', {
-          currentMode,
-          hasVariations: !!opening?.variations,
-          variationCount: opening?.variations?.length,
-          shouldAutoAdvance: currentMode === 'series' && opening?.variations?.length > 1
-        });
+        console.log('🔄 Learn mode completion - showing modal');
 
-        if (currentMode === 'series' && opening?.variations?.length > 1) {
-          console.log('✅ Auto-advancing to next variation in 500ms');
-          setTimeout(() => {
-            handleNextVariation();
-          }, 500);
-        } else {
-          console.log('⚠️ Not auto-advancing, resetting instead');
-          setTimeout(() => {
-            reset();
-          }, 500);
-        }
+        // IMPORTANT: Reset processing flag
+        completionProcessingRef.current = false;
+
+        // Show the learn mode completion modal
+        setLearnCompleteOpen(true);
         return;
       }
 
@@ -896,6 +935,14 @@ export default function TrainingScreen() {
 
     // Correct move: auto-play opponent response if available
     const oppSan = getOpponentResponse();
+
+    console.log('🎮 COMPLETION CHECK:', {
+      historyLength: engine.history().length,
+      totalExpectedMoves,
+      oppSan,
+      shouldComplete: engine.history().length >= totalExpectedMoves
+    });
+
     if (oppSan) {
       setTimeout(() => {
         try {
@@ -904,15 +951,29 @@ export default function TrainingScreen() {
           setTick((t) => t + 1);
           refreshCheckHighlight();
 
+          console.log('🎮 AFTER OPPONENT MOVE:', {
+            historyLength: engine.history().length,
+            totalExpectedMoves,
+            shouldComplete: engine.history().length >= totalExpectedMoves
+          });
+
           // After opponent move, check for completion
           if (engine.history().length >= totalExpectedMoves) {
+            console.log('✅ FINALIZING COMPLETION (after opponent)');
             finalizeCompletion();
+          } else {
+            // Update explanation for next player move
+            updateCurrentExplanation();
           }
-        } catch { }
+        } catch (err) {
+          console.error('❌ Error making opponent move:', err);
+        }
       }, 300);
     } else {
+      console.log('🎮 NO OPPONENT RESPONSE');
       // No opponent reply expected; check completion now
       if (engine.history().length >= totalExpectedMoves) {
+        console.log('✅ FINALIZING COMPLETION (no opponent)');
         finalizeCompletion();
       }
     }
@@ -1234,13 +1295,13 @@ export default function TrainingScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container} edges={['top']}>
+    <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>{opening?.name || 'Training'}</Text>
+        <Text style={styles.title}>{cleanOpeningName(opening?.name || 'Training')}</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -1289,6 +1350,8 @@ export default function TrainingScreen() {
           onModePress={() => setModePickerOpen(true)}
           onSeriesMode={handleSeriesMode}
           onRandomMode={handleRandomMode}
+          onUndo={handleUndo}
+          showUndo={trainingMode.canUndo() && showUndoButton}
           currentMode={currentMode}
           variationLabel={`Variation ${currentVariationIndex + 1}`}
           progress={progress}
@@ -1298,13 +1361,6 @@ export default function TrainingScreen() {
           hasMoves={engine.history().length > (playerColor === 'b' ? 1 : 0)}
           hideVariationSelector={trainingMode.id === 'learn'} // Hide in Learn mode for more space
         />
-
-        {/* Undo Button (Learn Mode only) */}
-        {trainingMode.canUndo() && showUndoButton && (
-          <TouchableOpacity style={styles.undoButton} onPress={handleUndo}>
-            <Text style={styles.undoButtonText}>↩️ Undo</Text>
-          </TouchableOpacity>
-        )}
 
         {/* Reset Button - Hidden in Learn Mode */}
         {!trainingMode.shouldShowExplanations() && (
@@ -1335,6 +1391,52 @@ export default function TrainingScreen() {
         weeklyProgress={weeklyProgress}
         showStreakCelebration={showStreakCelebration}
       />
+
+      {/* Learn Mode Completion Modal */}
+      <Modal
+        visible={learnCompleteOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setLearnCompleteOpen(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.learnCompleteModal}>
+            <Text style={styles.learnCompleteEmoji}>🎉</Text>
+            <Text style={styles.learnCompleteTitle}>Variation Complete!</Text>
+            <Text style={styles.learnCompleteSubtitle}>
+              {opening?.variations?.[currentVariationIndex]?.name || `Variation ${currentVariationIndex + 1}`}
+            </Text>
+            <Text style={styles.learnCompleteMessage}>
+              Great job! You've learned this variation. Continue learning or practice what you've learned.
+            </Text>
+
+            <View style={styles.learnCompleteButtons}>
+              <TouchableOpacity
+                style={styles.learnCompletePrimaryButton}
+                onPress={() => {
+                  setLearnCompleteOpen(false);
+                  trainingCompleteRef.current = false;
+                  handleNextVariation();
+                }}
+              >
+                <Text style={styles.learnCompletePrimaryText}>Continue Learning →</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.learnCompleteSecondaryButton}
+                onPress={() => {
+                  setLearnCompleteOpen(false);
+                  trainingCompleteRef.current = false;
+                  setTrainingModeId('drill');
+                  reset();
+                }}
+              >
+                <Text style={styles.learnCompleteSecondaryText}>Practice in Drill Mode</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Variation Picker Modal */}
       <Modal
@@ -1536,17 +1638,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   undoButton: {
-    marginTop: 16,
+    marginTop: 8,
+    marginBottom: 8,
     backgroundColor: colors.card,
     borderWidth: 2,
     borderColor: colors.primary,
-    borderRadius: 12,
-    paddingVertical: 14,
+    borderRadius: 10,
+    paddingVertical: 10,
     alignItems: 'center',
   },
   undoButtonText: {
     color: colors.primary,
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: '700',
   },
   resetButton: {
@@ -1697,5 +1800,68 @@ const styles = StyleSheet.create({
   },
   modeOptionDisabledText: {
     color: colors.textSubtle,
+  },
+  // Learn Complete Modal styles
+  learnCompleteModal: {
+    width: '85%',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 24,
+    padding: 28,
+    alignItems: 'center',
+  },
+  learnCompleteEmoji: {
+    fontSize: 56,
+    marginBottom: 16,
+  },
+  learnCompleteTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: colors.foreground,
+    marginBottom: 8,
+  },
+  learnCompleteSubtitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary,
+    marginBottom: 16,
+  },
+  learnCompleteMessage: {
+    fontSize: 14,
+    color: colors.textSubtle,
+    textAlign: 'center',
+    marginBottom: 24,
+    lineHeight: 20,
+  },
+  learnCompleteButtons: {
+    width: '100%',
+    gap: 12,
+  },
+  learnCompletePrimaryButton: {
+    width: '100%',
+    backgroundColor: colors.primary,
+    paddingVertical: 16,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  learnCompletePrimaryText: {
+    color: colors.primaryForeground,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  learnCompleteSecondaryButton: {
+    width: '100%',
+    backgroundColor: colors.card,
+    borderWidth: 2,
+    borderColor: colors.border,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  learnCompleteSecondaryText: {
+    color: colors.foreground,
+    fontSize: 16,
+    fontWeight: '600',
   },
 });

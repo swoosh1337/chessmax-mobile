@@ -9,6 +9,7 @@ import CategorySection from '@/src/components/CategorySection';
 import { groupOpenings } from '@/src/utils/openingGrouping';
 import { groupByCategory } from '@/src/utils/openingCategories';
 import { useSubscription } from '@/src/context/SubscriptionContext';
+import { getCachedAllOpenings, cacheAllOpenings } from '@/src/utils/openingsCache';
 
 const FAVORITES_KEY = '@chessmax_favorites';
 
@@ -21,24 +22,44 @@ export default function HomeScreen() {
   const [colorFilter, setColorFilter] = useState('all');
   const [favorites, setFavorites] = useState(new Set<string>());
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
-  
 
-  // Load openings data
+
+  // Load openings data with cache (stale-while-revalidate strategy)
   useEffect(() => {
     let mounted = true;
+
     const load = async () => {
       try {
-        // Note: Auth flow is handled by app/index.tsx, no need to check here
+        // Step 1: Try to load from cache immediately
+        const cachedOpenings = await getCachedAllOpenings();
+        if (cachedOpenings && mounted) {
+          console.log('📦 Using cached openings (fast load)');
+          const grouped = groupOpenings(cachedOpenings);
+          setData(grouped);
+          setLoading(false);
+        }
+
+        // Step 2: Fetch fresh data from server (in background if cache was available)
         const openings = await chessApi.getOpenings();
         if (!mounted) return;
-        const grouped = groupOpenings(Array.isArray(openings) ? openings : []);
-        setData(grouped);
+
+        const freshGrouped = groupOpenings(Array.isArray(openings) ? openings : []);
+        setData(freshGrouped);
+
+        // Step 3: Update cache with fresh data
+        if (Array.isArray(openings)) {
+          await cacheAllOpenings(openings);
+        }
       } catch (e: any) {
-        setError(e?.message || 'Failed to load openings');
+        if (!data.length) {
+          // Only show error if we don't have cached data to fall back to
+          setError(e?.message || 'Failed to load openings');
+        }
       } finally {
         setLoading(false);
       }
     };
+
     load();
     return () => { mounted = false; };
   }, []);
@@ -320,7 +341,7 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: colors.primary,
   },
-  
+
   hamburger: {
     width: 24,
     height: 18,

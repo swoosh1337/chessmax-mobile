@@ -8,6 +8,8 @@ export default function TrainingControls({
   onSeriesMode,
   onRandomMode,
   onModePress,
+  onUndo, // New prop for undo action
+  showUndo = false, // New prop to show/hide undo button
   currentMode = 'series',
   variationLabel = 'Variation 1',
   progress = { filled: 0, total: 0 },
@@ -31,6 +33,15 @@ export default function TrainingControls({
           <Ionicons name="bulb-outline" size={24} color={colors.primary} />
           <Text style={styles.buttonLabel}>Hint</Text>
         </TouchableOpacity>
+
+        {/* Undo Button - Shows when user makes a mistake */}
+        {showUndo && (
+          <TouchableOpacity onPress={onUndo} style={[styles.controlButton, styles.undoButton]}>
+            <Ionicons name="arrow-undo-outline" size={24} color={colors.primary} />
+            <Text style={styles.buttonLabel}>Undo</Text>
+          </TouchableOpacity>
+        )}
+
         <TouchableOpacity onPress={onModePress} style={styles.controlButton}>
           <Ionicons name="school-outline" size={24} color={colors.primary} />
           <Text style={styles.buttonLabel}>Mode</Text>
@@ -157,6 +168,10 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 4,
     elevation: 4,
+  },
+  undoButton: {
+    borderColor: colors.primary,
+    borderWidth: 2,
   },
   buttonLabel: {
     fontSize: 11,
