@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, Alert, Image } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { router } from 'expo-router';
+import { router, useFocusEffect } from 'expo-router';
 import { chessApi } from '@/src/api/chessApi';
 import { colors } from '@/src/theme/colors';
 import FilterBar from '@/src/components/FilterBar';
@@ -23,6 +23,15 @@ export default function HomeScreen() {
   const [favorites, setFavorites] = useState(new Set<string>());
   const [showFavoritesOnly, setShowFavoritesOnly] = useState(false);
 
+  // Navigation guard to prevent double-tap navigation
+  const isNavigatingRef = useRef(false);
+
+  // Reset navigation guard when screen comes back into focus
+  useFocusEffect(
+    useCallback(() => {
+      isNavigatingRef.current = false;
+    }, [])
+  );
 
   // Load openings data with cache (stale-while-revalidate strategy)
   useEffect(() => {
@@ -185,6 +194,12 @@ export default function HomeScreen() {
 
   // Handle opening press - navigate to training screen
   const handleOpeningPress = (opening: any, level: number, color: string) => {
+    // Prevent double-tap navigation
+    if (isNavigatingRef.current) {
+      console.log('⚠️ Navigation already in progress, ignoring tap');
+      return;
+    }
+
     // Check level accessibility for free users
     if (!isPremium && !isOpeningLevelAccessible(opening, level)) {
       // Show paywall for locked levels
@@ -216,6 +231,9 @@ export default function HomeScreen() {
       console.error('❌ No PGN available for training!');
       return;
     }
+
+    // Set navigation guard (will be reset by useFocusEffect when returning)
+    isNavigatingRef.current = true;
 
     // Navigate to training screen with opening parameter
     router.push({

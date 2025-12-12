@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View, Modal, ScrollView, Alert, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useLocalSearchParams, router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Asset } from 'expo-asset';
@@ -25,12 +26,6 @@ import TrainingModeSelector from '@/src/components/TrainingModeSelector';
 import InstructionDisplay from '@/src/components/InstructionDisplay';
 import { TrainingMode, TrainingModeId, MoveExplanation, TRAINING_MODES } from '@/src/types/trainingModes';
 
-// TEST MODE: Set to true to use local JSON files for Scotch Game
-const USE_LOCAL_TEST_DATA = false;
-
-// Load AI-enhanced Scotch Game files from assets
-const scotchGameL1 = USE_LOCAL_TEST_DATA ? require('../assets/scotch-game-l1.json') : null;
-const scotchGameL2 = USE_LOCAL_TEST_DATA ? require('../assets/scotch-game-l2.json') : null;
 
 // Helper to clean opening name for display (removes V2/V3 prefix, "for white/black", "lvl X")
 function cleanOpeningName(name: string): string {
@@ -54,22 +49,10 @@ export default function TrainingScreen() {
   // Get opening data from Expo Router params or use test data
   const params = useLocalSearchParams();
 
-  // Smart test data: Use AI-enhanced files based on level selection
-  const getTestData = () => {
-    if (!USE_LOCAL_TEST_DATA) return null;
-
-    const openingData = params.openingData ? JSON.parse(params.openingData as string) : null;
-    const level = openingData?.level || 1;
-
-    console.log('🧪 TEST MODE: Loading Scotch Game Level', level);
-
-    if (level === 2) return scotchGameL2;
-    return scotchGameL1; // Default to Level 1
-  };
-
-  const initialOpening = USE_LOCAL_TEST_DATA
-    ? getTestData()
-    : (params.openingData ? JSON.parse(params.openingData as string) : null);
+  // Get opening data from params (test mode is disabled)
+  const initialOpening = params.openingData
+    ? JSON.parse(params.openingData as string)
+    : null;
 
   // Variation management state
   const [currentOpening, setCurrentOpening] = useState(() => {
@@ -80,19 +63,22 @@ export default function TrainingScreen() {
   });
   const [currentMode, setCurrentMode] = useState<'series' | 'random'>('series');
   const [currentVariationIndex, setCurrentVariationIndex] = useState(0);
-  const [variationStatuses, setVariationStatuses] = useState<Array<'pending' | 'success' | 'error'>>([]);
 
-  // Check if the opening has moves with explanations (for Learn mode availability)
-  const hasMovesWithExplanations = useMemo(() => {
-    const variations = currentOpening?.variations;
-    if (!Array.isArray(variations) || variations.length === 0) return false;
-    // Check if at least one variation has moves array
-    return variations.some((v: any) => Array.isArray(v?.moves) && v.moves.length > 0);
-  }, [currentOpening?.variations]);
-
-  // Training mode state - default to 'drill' for all openings
+  // Training mode state - default to 'drill' for all openings (moved before status arrays)
   const [trainingModeId, setTrainingModeId] = useState<TrainingModeId>('drill');
   const trainingMode = new TrainingMode(trainingModeId);
+
+  // Separate tracking for studied (Learn mode) vs drilled (Drill mode) variations
+  const [studiedVariationStatuses, setStudiedVariationStatuses] = useState<Array<'pending' | 'success' | 'error'>>([]);
+  const [drilledVariationStatuses, setDrilledVariationStatuses] = useState<Array<'pending' | 'success' | 'error'>>([]);
+
+  // Use the appropriate status array based on current mode
+  const variationStatuses = trainingModeId === 'learn' ? studiedVariationStatuses : drilledVariationStatuses;
+  const setVariationStatuses = trainingModeId === 'learn' ? setStudiedVariationStatuses : setDrilledVariationStatuses;
+
+  // Learn mode is now always available (uses visual hints, not AI explanations)
+  const hasMovesWithExplanations = true;
+
   const [currentExplanation, setCurrentExplanation] = useState<MoveExplanation | null>(null);
   const [showUndoButton, setShowUndoButton] = useState(false);
   const [moveHistory, setMoveHistory] = useState<any[]>([]);
@@ -106,7 +92,8 @@ export default function TrainingScreen() {
   // Streak tracking
   const [currentStreak, setCurrentStreak] = useState(1);
   const [weeklyProgress, setWeeklyProgress] = useState([true, false, false, false, false]); // [W, Th, F, Sa, Su]
-  const [showStreakCelebration, setShowStreakCelebration] = useState(true); // Show streak celebration once per day
+  const [showStreakCelebration, setShowStreakCelebration] = useState(false); // Start false, set true after async check
+  const streakSavedThisSessionRef = useRef(false); // Prevent saving twice in same session
 
   // Helper to generate unique ID for a variation
   const getUniqueVariationId = useCallback((index: number) => {
@@ -308,12 +295,17 @@ export default function TrainingScreen() {
     checkStreakCelebration();
   }, []);
 
-  // Mark streak celebration as shown when modal opens
+  // Mark streak celebration as shown when modal opens (save to AsyncStorage but don't re-render)
   useEffect(() => {
     const markStreakShown = async () => {
-      if (completionOpen && showStreakCelebration) {
+      // Only save if modal is open, streak is showing, AND we haven't saved this session
+      if (completionOpen && showStreakCelebration && !streakSavedThisSessionRef.current) {
+        console.log('[STREAK DEBUG] Saving streak timestamp to AsyncStorage');
+        streakSavedThisSessionRef.current = true; // Mark as saved for this session
         try {
           await AsyncStorage.setItem('@last_streak_celebration', new Date().toISOString());
+          console.log('[STREAK DEBUG] Saved successfully');
+          // DON'T update state here - it causes modal to re-render while open
         } catch (error) {
           console.error('[Training] Error saving streak celebration timestamp:', error);
         }
@@ -518,6 +510,22 @@ export default function TrainingScreen() {
     }
   };
 
+  // Auto-show hint in Learn mode (always show next correct move)
+  const showAutoHint = () => {
+    if (!trainingMode.shouldShowExplanations()) return;
+    if (trainingCompleteRef.current) return;
+
+    const san = getExpectedMove();
+    if (!san) return;
+
+    const prev = engine.previewSan(san);
+    if (!prev?.from || !prev?.to) return;
+
+    // Set hint to show the correct move (these will stay visible in Learn mode)
+    setHintSource(prev.from);
+    setHintTarget(prev.to);
+  };
+
   const reset = () => {
     initPositionForOrientation();
     setSelected(null);
@@ -537,6 +545,11 @@ export default function TrainingScreen() {
     setWrongMoveSquare(null);
     setCheckSquare(null);
     setEarnedXP(0);
+
+    // In Learn mode, show the first hint after a short delay
+    if (trainingMode.shouldShowExplanations()) {
+      setTimeout(showAutoHint, 200);
+    }
   };
 
   const switchToVariation = (index: number) => {
@@ -545,11 +558,15 @@ export default function TrainingScreen() {
     if (index < 0 || index >= variations.length) return;
 
     const newVariation = variations[index];
-    console.log('🔄 switchToVariation:', { index, name: newVariation?.name });
+    console.log('🔄 switchToVariation:', { index, variationName: newVariation?.name });
 
-    // Update state
+    // Update state - preserve the original opening name, just update the pgn and other variation data
     setCurrentVariationIndex(index);
-    setCurrentOpening({ ...opening, ...newVariation });
+    setCurrentOpening({
+      ...opening,
+      ...newVariation,
+      name: opening?.name || newVariation?.name // Preserve original opening name
+    });
     setErrors(0);
     setHintsUsed(0);
     setStartTime(Date.now());
@@ -601,8 +618,9 @@ export default function TrainingScreen() {
         return;
       }
 
-      // Close modal
+      // Close modal and hide streak for rest of session
       setCompletionOpen(false);
+      setShowStreakCelebration(false);
 
       const variations = opening?.variations || [];
 
@@ -611,9 +629,26 @@ export default function TrainingScreen() {
         return;
       }
 
-      const nextIndex = currentMode === 'series'
-        ? (currentVariationIndex + 1) % variations.length
-        : Math.floor(Math.random() * variations.length);
+      let nextIndex: number;
+
+      if (currentMode === 'series') {
+        nextIndex = (currentVariationIndex + 1) % variations.length;
+      } else {
+        // Random mode: prioritize incomplete variations
+        const incompleteIndices = variationStatuses
+          .map((status, idx) => ({ status, idx }))
+          .filter(({ status }) => status === 'pending')
+          .map(({ idx }) => idx);
+
+        if (incompleteIndices.length > 0) {
+          // Pick a random incomplete variation
+          const randomIdx = Math.floor(Math.random() * incompleteIndices.length);
+          nextIndex = incompleteIndices[randomIdx];
+        } else {
+          // All complete - fall back to pure random
+          nextIndex = Math.floor(Math.random() * variations.length);
+        }
+      }
 
       // Freemium restriction:
       // - First 3 openings: All levels and all variations free
@@ -705,6 +740,15 @@ export default function TrainingScreen() {
 
         console.log('🔄 Learn mode completion - showing modal');
 
+        // Mark this variation as studied (Learn mode = always success since it's guided)
+        if (opening?.variations?.length > 0) {
+          setStudiedVariationStatuses((prev) => {
+            const next = [...prev];
+            next[currentVariationIndex] = 'success';
+            return next;
+          });
+        }
+
         // IMPORTANT: Reset processing flag
         completionProcessingRef.current = false;
 
@@ -719,11 +763,23 @@ export default function TrainingScreen() {
       setCompletionSuccess(success);
       setCompletionOpen(true);
 
-      // Mark status for current variation, if any
+      // Mark status for current variation
+      // In Drill mode: update both drilled AND studied status (drilling counts as learning)
       if (opening?.variations?.length > 0) {
-        setVariationStatuses((prev) => {
+        // Update drilled status
+        setDrilledVariationStatuses((prev) => {
           const next = [...prev];
           next[currentVariationIndex] = success ? 'success' : 'error';
+          return next;
+        });
+
+        // Drilling also counts as studying (you learned it by practicing)
+        setStudiedVariationStatuses((prev) => {
+          const next = [...prev];
+          // Only upgrade to success, don't downgrade if already success
+          if (success || next[currentVariationIndex] === 'pending') {
+            next[currentVariationIndex] = success ? 'success' : 'error';
+          }
           return next;
         });
       }
@@ -962,8 +1018,8 @@ export default function TrainingScreen() {
             console.log('✅ FINALIZING COMPLETION (after opponent)');
             finalizeCompletion();
           } else {
-            // Update explanation for next player move
-            updateCurrentExplanation();
+            // In Learn mode, show the next hint
+            showAutoHint();
           }
         } catch (err) {
           console.error('❌ Error making opponent move:', err);
@@ -975,6 +1031,9 @@ export default function TrainingScreen() {
       if (engine.history().length >= totalExpectedMoves) {
         console.log('✅ FINALIZING COMPLETION (no opponent)');
         finalizeCompletion();
+      } else {
+        // In Learn mode, show the next hint
+        showAutoHint();
       }
     }
   };
@@ -1168,51 +1227,11 @@ export default function TrainingScreen() {
     }
   };
 
-  // Function to update current explanation based on position
+  // Function to update current explanation - now just clears since we use visual hints
   const updateCurrentExplanation = () => {
-    console.log('🔍 updateCurrentExplanation called');
-    console.log('  - shouldShowExplanations:', trainingMode.shouldShowExplanations());
-    console.log('  - opening?.variations:', opening?.variations?.length);
-
-    if (!trainingMode.shouldShowExplanations()) {
-      setCurrentExplanation(null);
-      return;
-    }
-
-    // Get current variation data
-    const variation = opening?.variations?.[currentVariationIndex];
-    console.log('  - variation:', variation);
-    console.log('  - variation?.moves:', variation?.moves?.length);
-
-    if (!variation?.moves) {
-      console.log('  ⚠️ No moves array in variation - explanations not available');
-      setCurrentExplanation(null);
-      return;
-    }
-
-    // Get the next move index (the move the player should make)
-    const totalMoves = engine.history().length;
-    const nextMoveIndex = totalMoves;
-
-    console.log('  - nextMoveIndex:', nextMoveIndex);
-
-    // Find the explanation for this move
-    const moveData = variation.moves?.[nextMoveIndex];
-    console.log('  - moveData:', moveData);
-
-    if (moveData?.explanation) {
-      console.log('  ✅ Setting explanation:', moveData.explanation.text);
-      setCurrentExplanation(moveData.explanation);
-    } else {
-      console.log('  ⚠️ No explanation for this move');
-      setCurrentExplanation(null);
-    }
+    // We no longer use AI text explanations - visual hints are used instead
+    setCurrentExplanation(null);
   };
-
-  // Update explanation when training mode or position changes
-  useEffect(() => {
-    updateCurrentExplanation();
-  }, [trainingModeId, tick, currentVariationIndex, opening]);
 
   // Undo handler for Learn mode
   const handleUndo = () => {
@@ -1234,31 +1253,85 @@ export default function TrainingScreen() {
 
   // Handle mode change
   const handleModeChange = (newMode: TrainingModeId) => {
+    // First update the mode
     setTrainingModeId(newMode);
     setShowUndoButton(false);
-    updateCurrentExplanation();
+
+    // Reset the board state
+    initPositionForOrientation();
+    setSelected(null);
+    setLegalTargets([]);
+    setErrors(0);
+    setHintsUsed(0);
+    setStartTime(Date.now());
+    trainingCompleteRef.current = false;
+    setTick((t) => t + 1);
+    setLastMove({ from: null, to: null });
+    if (hintTimeout.current) clearTimeout(hintTimeout.current);
+    setHintSource(null);
+    setHintTarget(null);
+    if (wrongMoveTimeout.current) clearTimeout(wrongMoveTimeout.current);
+    setWrongMoveSquare(null);
+    setCheckSquare(null);
+    setEarnedXP(0);
+
+    // If switching TO Learn mode, show auto-hint after a delay
+    // (check by newMode directly since state hasn't updated yet)
+    if (newMode === 'learn') {
+      setTimeout(showAutoHint, 200);
+    }
   };
 
+  // When orientation or opening (variation) changes, fully reset board state
   useEffect(() => {
-    // When orientation or opening (variation) changes, fully reset board state
     reset();
   }, [orientation, opening]);
 
-  // Initialize and update variation statuses
+  // Auto-show hint in Learn mode whenever mode changes or board resets
+  useEffect(() => {
+    if (trainingModeId === 'learn' && !trainingCompleteRef.current) {
+      // Delay to allow board to render first
+      const timer = setTimeout(() => {
+        // Directly show hint without relying on trainingMode object
+        const san = getExpectedMove();
+        if (!san) return;
+
+        const prev = engine.previewSan(san);
+        if (!prev?.from || !prev?.to) return;
+
+        setHintSource(prev.from);
+        setHintTarget(prev.to);
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [trainingModeId, tick, opening]);
+
+  // Initialize and update variation statuses for both modes
   useEffect(() => {
     if (opening?.variations?.length > 0) {
-      setVariationStatuses((prev) => {
-        // Create new array based on variations
-        const next = new Array(opening.variations.length).fill('pending');
+      const variationCount = opening.variations.length;
 
-        // Preserve current session progress (if better than pending)
+      // Initialize studied statuses
+      setStudiedVariationStatuses((prev) => {
+        const next = new Array(variationCount).fill('pending');
         prev.forEach((status, idx) => {
           if (idx < next.length && status !== 'pending') {
             next[idx] = status;
           }
         });
+        if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
+        return next;
+      });
 
-        // Mark historically completed variations
+      // Initialize drilled statuses
+      setDrilledVariationStatuses((prev) => {
+        const next = new Array(variationCount).fill('pending');
+        prev.forEach((status, idx) => {
+          if (idx < next.length && status !== 'pending') {
+            next[idx] = status;
+          }
+        });
+        // Mark historically completed variations from database
         if (completedVariationIds.size > 0) {
           opening.variations.forEach((_: any, idx: number) => {
             const uid = getUniqueVariationId(idx);
@@ -1267,8 +1340,6 @@ export default function TrainingScreen() {
             }
           });
         }
-
-        // Check if changed to avoid loop
         if (JSON.stringify(prev) === JSON.stringify(next)) return prev;
         return next;
       });
@@ -1305,13 +1376,54 @@ export default function TrainingScreen() {
         <View style={{ width: 40 }} />
       </View>
 
-      {/* Instruction Display (Learn Mode only) - Shows where mode selector was */}
-      {trainingMode.shouldShowExplanations() && currentExplanation && (
-        <InstructionDisplay
-          explanation={currentExplanation}
-          visible={true}
-          isLearnMode={trainingMode.id === 'learn'}
-        />
+      {/* Variation Progress Bar - Above Board */}
+      <TouchableOpacity
+        style={styles.progressBarAboveBoard}
+        onPress={() => setVariationPickerOpen(true)}
+        activeOpacity={0.8}
+      >
+        <View style={styles.progressBarHeader}>
+          <Text style={styles.progressBarTitle} numberOfLines={1}>
+            Variation {currentVariationIndex + 1} of {opening?.variations?.length || 1}
+          </Text>
+          <View style={styles.progressBarStats}>
+            <Text style={styles.progressBarMoves}>
+              {progress.filled}/{progress.total} moves
+            </Text>
+            {trainingCompleteRef.current && errors === 0 && (
+              <Text style={styles.progressBadgeSuccess}>✓</Text>
+            )}
+            {trainingCompleteRef.current && errors > 0 && (
+              <Text style={styles.progressBadgeError}>✗</Text>
+            )}
+          </View>
+        </View>
+        <View style={styles.progressBarTrack}>
+          <View
+            style={[
+              styles.progressBarFill,
+              {
+                width: `${progress.total > 0 ? (progress.filled / progress.total) * 100 : 0}%`,
+                backgroundColor: trainingCompleteRef.current
+                  ? (errors === 0 ? colors.success : colors.destructive)
+                  : colors.primary
+              }
+            ]}
+          />
+        </View>
+        <View style={styles.progressBarFooter}>
+          <Text style={styles.progressBarSubtitle}>
+            Level {opening?.level || 1} • {playerColor === 'w' ? '♔ White' : '♚ Black'}
+          </Text>
+          <Text style={styles.progressBarTap}>Tap to switch ▾</Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Learn Mode: Simple mode indicator */}
+      {trainingMode.shouldShowExplanations() && (
+        <View style={styles.learnModeIndicator}>
+          <Text style={styles.learnModeText}>📖 Study Mode - Follow the highlighted moves</Text>
+        </View>
       )}
 
       {/* Chess Board */}
@@ -1343,8 +1455,16 @@ export default function TrainingScreen() {
         )}
       </View>
 
-      {/* Training Controls */}
+      {/* Controls Container */}
       <View style={styles.controlsContainer}>
+        {/* Reset Button - First, with gap from board - Hidden in Learn Mode */}
+        {!trainingMode.shouldShowExplanations() && (
+          <TouchableOpacity style={styles.resetButton} onPress={reset}>
+            <Text style={styles.resetButtonText}>↻ Reset</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Training Controls - Below Reset */}
         <TrainingControls
           onHint={handleHint}
           onModePress={() => setModePickerOpen(true)}
@@ -1352,22 +1472,17 @@ export default function TrainingScreen() {
           onRandomMode={handleRandomMode}
           onUndo={handleUndo}
           showUndo={trainingMode.canUndo() && showUndoButton}
+          hideHint={trainingMode.shouldShowExplanations()} // Hide hint in Learn mode (auto-shown)
           currentMode={currentMode}
-          variationLabel={`Variation ${currentVariationIndex + 1}`}
+          variationLabel={cleanOpeningName(opening?.name || 'Opening')}
           progress={progress}
           progressStatus={trainingCompleteRef.current ? (errors === 0 ? 'success' : 'error') : 'neutral'}
           variationStatuses={variationStatuses}
           onPickVariation={() => setVariationPickerOpen(true)}
           hasMoves={engine.history().length > (playerColor === 'b' ? 1 : 0)}
-          hideVariationSelector={trainingMode.id === 'learn'} // Hide in Learn mode for more space
+          hideVariationSelector={true} // Progress bar is now above the board
+          trainingModeId={trainingModeId} // For Mode button icon
         />
-
-        {/* Reset Button - Hidden in Learn Mode */}
-        {!trainingMode.shouldShowExplanations() && (
-          <TouchableOpacity style={styles.resetButton} onPress={reset}>
-            <Text style={styles.resetButtonText}>↻ Reset</Text>
-          </TouchableOpacity>
-        )}
       </View>
 
       {/* Completion Modal */}
@@ -1379,10 +1494,14 @@ export default function TrainingScreen() {
         variationName={opening?.variationName || opening?.name}
         onRetry={() => {
           setCompletionOpen(false);
+          setShowStreakCelebration(false); // Don't show streak again this session
           reset();
         }}
         onNext={handleNextVariation}
-        onClose={() => setCompletionOpen(false)}
+        onClose={() => {
+          setCompletionOpen(false);
+          setShowStreakCelebration(false); // Don't show streak again this session
+        }}
         nextEnabled={Array.isArray(opening?.variations) && opening.variations.length > 0}
         xpEarned={earnedXP}
         correctCount={playerColor === 'w' ? sequence.white?.length || 0 : sequence.black?.length || 0}
@@ -1427,8 +1546,7 @@ export default function TrainingScreen() {
                 onPress={() => {
                   setLearnCompleteOpen(false);
                   trainingCompleteRef.current = false;
-                  setTrainingModeId('drill');
-                  reset();
+                  handleModeChange('drill'); // Use handleModeChange to properly reset
                 }}
               >
                 <Text style={styles.learnCompleteSecondaryText}>Practice in Drill Mode</Text>
@@ -1529,14 +1647,21 @@ export default function TrainingScreen() {
               {Object.values(TRAINING_MODES).map((mode) => {
                 // Learn mode is disabled if no explanations available
                 const isDisabled = mode.id === 'learn' && !hasMovesWithExplanations;
+                const isActive = trainingModeId === mode.id;
+
+                // Minimalistic icons for each mode
+                const iconName = mode.id === 'learn' ? 'book-outline' : 'disc-outline';
+                const iconColor = isDisabled
+                  ? colors.textSubtle
+                  : (isActive ? mode.color : colors.foreground);
 
                 return (
                   <TouchableOpacity
                     key={mode.id}
                     style={[
                       styles.modeOption,
-                      trainingModeId === mode.id && styles.modeOptionActive,
-                      trainingModeId === mode.id && { borderColor: mode.color, backgroundColor: mode.color + '15' },
+                      isActive && styles.modeOptionActive,
+                      isActive && { borderColor: mode.color, backgroundColor: mode.color + '15' },
                       isDisabled && styles.modeOptionDisabled
                     ]}
                     onPress={() => {
@@ -1546,10 +1671,15 @@ export default function TrainingScreen() {
                     }}
                     disabled={isDisabled}
                   >
-                    <Text style={[styles.modeOptionEmoji, isDisabled && styles.modeOptionDisabledText]}>{mode.emoji}</Text>
+                    <Ionicons
+                      name={iconName as any}
+                      size={28}
+                      color={iconColor}
+                      style={styles.modeOptionIcon}
+                    />
                     <Text style={[
                       styles.modeOptionName,
-                      trainingModeId === mode.id && styles.modeOptionNameActive,
+                      isActive && styles.modeOptionNameActive,
                       isDisabled && styles.modeOptionDisabledText
                     ]}>{mode.name}</Text>
                     <Text style={[styles.modeOptionDescription, isDisabled && styles.modeOptionDisabledText]}>
@@ -1613,7 +1743,7 @@ const styles = StyleSheet.create({
   },
   boardContainer: {
     alignItems: 'center',
-    marginVertical: 8, // Reduced from 20 to move board up and make variation component visible
+    marginVertical: 12, // Consistent spacing with other elements
     position: 'relative',
   },
   loadingOverlay: {
@@ -1653,7 +1783,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   resetButton: {
-    marginTop: 16,
+    marginTop: 24, // Significant gap from board to prevent accidental presses
+    marginBottom: 12, // Gap between reset and control buttons below
     backgroundColor: colors.card,
     borderWidth: 1,
     borderColor: colors.border,
@@ -1775,8 +1906,7 @@ const styles = StyleSheet.create({
   modeOptionActive: {
     borderWidth: 3,
   },
-  modeOptionEmoji: {
-    fontSize: 48,
+  modeOptionIcon: {
     marginBottom: 12,
   },
   modeOptionName: {
@@ -1863,5 +1993,93 @@ const styles = StyleSheet.create({
     color: colors.foreground,
     fontSize: 16,
     fontWeight: '600',
+  },
+  // Learn Mode indicator styles
+  learnModeIndicator: {
+    backgroundColor: colors.primary + '20',
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    marginHorizontal: 16,
+    marginBottom: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.primary + '40',
+  },
+  learnModeText: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  // Progress bar above board styles
+  progressBarAboveBoard: {
+    marginHorizontal: 16,
+    marginBottom: 12, // Consistent spacing with other elements
+    padding: 12,
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  progressBarHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  progressBarTitle: {
+    color: colors.foreground,
+    fontSize: 16,
+    fontWeight: '700',
+    flex: 1,
+  },
+  progressBarStats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  progressBarMoves: {
+    color: colors.textSubtle,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  progressBadgeSuccess: {
+    color: colors.success,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  progressBadgeError: {
+    color: colors.destructive,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  progressBarTrack: {
+    height: 6,
+    backgroundColor: colors.border,
+    borderRadius: 3,
+    overflow: 'hidden',
+    marginBottom: 6,
+  },
+  progressBarFill: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  progressBarFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  progressBarVariation: {
+    color: colors.textSubtle,
+    fontSize: 12,
+  },
+  progressBarSubtitle: {
+    color: colors.textSubtle,
+    fontSize: 12,
+  },
+  progressBarTap: {
+    color: colors.primary,
+    fontSize: 12,
+    fontWeight: '500',
   },
 });

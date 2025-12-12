@@ -10,6 +10,7 @@ export default function TrainingControls({
   onModePress,
   onUndo, // New prop for undo action
   showUndo = false, // New prop to show/hide undo button
+  hideHint = false, // New prop to hide hint button in Learn mode
   currentMode = 'series',
   variationLabel = 'Variation 1',
   progress = { filled: 0, total: 0 },
@@ -17,7 +18,8 @@ export default function TrainingControls({
   variationStatuses = [], // per-variation: 'pending' | 'success' | 'error'
   onPickVariation,
   hasMoves = false,
-  hideVariationSelector = false // Hide variation selector in Learn mode
+  hideVariationSelector = false, // Hide variation selector in Learn mode
+  trainingModeId = 'drill' // 'learn' | 'drill' - to show correct icon
 }) {
   const filledColor = progressStatus === 'success'
     ? colors.success
@@ -25,14 +27,20 @@ export default function TrainingControls({
       ? colors.destructive
       : colors.primary;
 
+  // Mode button icon based on training mode
+  const modeIcon = trainingModeId === 'learn' ? 'book-outline' : 'disc-outline';
+
   return (
     <View>
       {/* Control Buttons Row */}
       <View style={styles.buttonsRow}>
-        <TouchableOpacity onPress={onHint} style={styles.controlButton}>
-          <Ionicons name="bulb-outline" size={24} color={colors.primary} />
-          <Text style={styles.buttonLabel}>Hint</Text>
-        </TouchableOpacity>
+        {/* Hint Button - Hidden in Learn mode */}
+        {!hideHint && (
+          <TouchableOpacity onPress={onHint} style={styles.controlButton}>
+            <Ionicons name="bulb-outline" size={24} color={colors.primary} />
+            <Text style={styles.buttonLabel}>Hint</Text>
+          </TouchableOpacity>
+        )}
 
         {/* Undo Button - Shows when user makes a mistake */}
         {showUndo && (
@@ -43,45 +51,51 @@ export default function TrainingControls({
         )}
 
         <TouchableOpacity onPress={onModePress} style={styles.controlButton}>
-          <Ionicons name="school-outline" size={24} color={colors.primary} />
+          <Ionicons name={modeIcon} size={24} color={colors.primary} />
           <Text style={styles.buttonLabel}>Mode</Text>
         </TouchableOpacity>
-        <TouchableOpacity
-          onPress={onSeriesMode}
-          style={[
-            styles.controlButton,
-            currentMode === 'series' && styles.controlButtonActive
-          ]}
-          disabled={hasMoves}
-        >
-          <Ionicons
-            name="list-outline"
-            size={24}
-            color={currentMode === 'series' ? colors.primaryForeground : colors.foreground}
-          />
-          <Text style={[
-            styles.buttonLabel,
-            currentMode === 'series' && styles.buttonLabelActive
-          ]}>Series</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          onPress={onRandomMode}
-          style={[
-            styles.controlButton,
-            currentMode === 'random' && styles.controlButtonActive
-          ]}
-          disabled={hasMoves}
-        >
-          <Ionicons
-            name="shuffle-outline"
-            size={24}
-            color={currentMode === 'random' ? colors.primaryForeground : colors.foreground}
-          />
-          <Text style={[
-            styles.buttonLabel,
-            currentMode === 'random' && styles.buttonLabelActive
-          ]}>Random</Text>
-        </TouchableOpacity>
+
+        {/* Series and Random buttons - Hidden in Study mode */}
+        {!hideHint && (
+          <>
+            <TouchableOpacity
+              onPress={onSeriesMode}
+              style={[
+                styles.controlButton,
+                currentMode === 'series' && styles.controlButtonActive
+              ]}
+              disabled={hasMoves}
+            >
+              <Ionicons
+                name="list-outline"
+                size={24}
+                color={currentMode === 'series' ? colors.primaryForeground : colors.foreground}
+              />
+              <Text style={[
+                styles.buttonLabel,
+                currentMode === 'series' && styles.buttonLabelActive
+              ]}>Series</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={onRandomMode}
+              style={[
+                styles.controlButton,
+                currentMode === 'random' && styles.controlButtonActive
+              ]}
+              disabled={hasMoves}
+            >
+              <Ionicons
+                name="shuffle-outline"
+                size={24}
+                color={currentMode === 'random' ? colors.primaryForeground : colors.foreground}
+              />
+              <Text style={[
+                styles.buttonLabel,
+                currentMode === 'random' && styles.buttonLabelActive
+              ]}>Random</Text>
+            </TouchableOpacity>
+          </>
+        )}
       </View>
 
       {/* Variation Progress + Selector - Hidden in Learn mode */}
