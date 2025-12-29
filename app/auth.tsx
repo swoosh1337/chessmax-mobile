@@ -5,6 +5,9 @@ import { router, useSegments } from 'expo-router';
 import { colors } from '@/src/theme/colors';
 import { signInWithApple, signInWithGoogle } from '@/src/utils/auth';
 import { useAuth } from '@/src/context/AuthContext';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('AuthScreen');
 
 export default function AuthScreen() {
   const { isAuthenticated, loading: authLoading } = useAuth();
@@ -44,7 +47,7 @@ export default function AuthScreen() {
           return;
         }
 
-        console.error(`[AuthScreen] ${provider} sign-in failed:`, result.error);
+        log.error(`${provider} sign-in failed`, undefined, { error: result.error });
         Alert.alert('Sign In Failed', result.error || 'Something went wrong');
         setLoading(null);
         return;
@@ -55,7 +58,7 @@ export default function AuthScreen() {
       // Let index.tsx handle routing based on onboarding/paywall status
       router.replace('/');
     } catch (e: any) {
-      console.error('[AuthScreen] Sign-in error:', e);
+      log.error('Sign-in error', e);
       Alert.alert('Sign In Error', e.message || 'Something went wrong');
       setLoading(null);
     }

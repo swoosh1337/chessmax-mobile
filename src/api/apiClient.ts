@@ -1,17 +1,25 @@
-import axios from 'axios';
+import axios, { AxiosError, InternalAxiosRequestConfig } from 'axios';
 import { BACKEND_URL } from '../config';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('ApiClient');
 
 // Minimal token helpers; replace with real auth/secure store
-let authToken = null;
-let signedUser = null; // { google_id?: string, sub?: string }
+let authToken: string | null = null;
+let signedUser: { google_id?: string; sub?: string; id?: string } | null = null;
 
-export const setAuth = ({ token, user }) => {
+interface AuthData {
+  token: string | null;
+  user: { google_id?: string; sub?: string; id?: string } | null;
+}
+
+export const setAuth = ({ token, user }: AuthData): void => {
   authToken = token || null;
   signedUser = user || null;
 };
 
 // Resolve base URL - only add port 3000 for localhost/http
-const resolveBaseURL = (rawUrl) => {
+const resolveBaseURL = (rawUrl: string): string => {
   try {
     const ensureScheme = /^https?:\/\//i.test(rawUrl) ? rawUrl : `http://${rawUrl}`;
     const url = new URL(ensureScheme);
@@ -29,7 +37,7 @@ const resolveBaseURL = (rawUrl) => {
 
     // For HTTPS URLs (like production), use origin as-is (default port 443)
     return origin;
-  } catch (_e) {
+  } catch {
     // Fallback: naive check for existing :port at end
     const trimmed = String(rawUrl).replace(/\/$/, '');
     if (/:[0-9]+$/.test(trimmed)) {
@@ -44,7 +52,7 @@ const resolveBaseURL = (rawUrl) => {
 };
 
 const resolvedURL = resolveBaseURL(BACKEND_URL);
-console.log('📡 API Client configured:', resolvedURL);
+log.info('API Client configured', { baseURL: resolvedURL });
 
 const apiClient = axios.create({
   baseURL: resolvedURL,
@@ -52,7 +60,7 @@ const apiClient = axios.create({
   timeout: 30000 // 30 second timeout
 });
 
-apiClient.interceptors.request.use((config) => {
+apiClient.interceptors.request.use((config: InternalAxiosRequestConfig) => {
   if (authToken) {
     config.headers = config.headers || {};
     config.headers['Authorization'] = `Bearer ${authToken}`;
@@ -64,7 +72,7 @@ apiClient.interceptors.request.use((config) => {
     '/recent-attempts-for-opening',
     '/activity-calendar'
   ];
-  if (user && (user.google_id || user.sub) && config.url && protectedEndpoints.some(ep => config.url.startsWith(ep))) {
+  if (user && (user.google_id || user.sub) && config.url && protectedEndpoints.some(ep => config.url?.startsWith(ep))) {
     config.params = config.params || {};
     config.params.google_id = user.google_id || user.sub;
   }
@@ -73,23 +81,26 @@ apiClient.interceptors.request.use((config) => {
 
 apiClient.interceptors.response.use(
   (res) => res.data,
-  (error) => {
-    console.error('❌ API Error:', error.message);
-    console.error('Request URL:', error.config?.url);
-    console.error('Full URL:', error.config?.baseURL + error.config?.url);
+  (error: AxiosError) => {
+    log.error('API request failed', error, {
+      url: error.config?.url,
+      fullUrl: error.config?.baseURL ? `${error.config.baseURL}${error.config.url}` : error.config?.url,
+    });
 
     if (error.response) {
       // Server responded with error status
-      const msg = `API Error: ${error.response.status} ${error.response.data?.message || ''}`.trim();
-      console.error('Response:', error.response.data);
+      const responseData = error.response.data as { message?: string } | undefined;
+      const msg = `API Error: ${error.response.status} ${responseData?.message || ''}`.trim();
+      log.error('Server error response', undefined, {
+        status: error.response.status,
+        data: error.response.data
+      });
       throw new Error(msg);
     } else if (error.request) {
       // Request was made but no response received
-      console.error('No response received. This could be:');
-      console.error('- Server is down');
-      console.error('- Network connectivity issue');
-      console.error('- CORS issue');
-      console.error('- SSL certificate issue');
+      log.error('No response received', undefined, {
+        possibleCauses: ['Server is down', 'Network connectivity issue', 'CORS issue', 'SSL certificate issue']
+      });
       throw new Error(`Network Error: Cannot reach server at ${resolvedURL}`);
     } else {
       // Something else happened

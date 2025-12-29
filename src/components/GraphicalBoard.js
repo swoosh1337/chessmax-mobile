@@ -4,6 +4,9 @@ import Svg, { Defs, LinearGradient, Stop, Rect, Line, Polygon } from 'react-nati
 import { Text } from 'react-native';
 import DraggablePiece from './DraggablePiece';
 import { colors } from '../theme/colors';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('GraphicalBoard');
 
 const FILES = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 
@@ -25,10 +28,7 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
   const legalSet = useMemo(() => new Set(legalTargets || []), [legalTargets]);
 
   // Debug logging
-  console.log('📊 GRAPHICAL BOARD RENDER:');
-  console.log('  - selected:', selected);
-  console.log('  - legalTargets:', legalTargets);
-  console.log('  - legalSet:', Array.from(legalSet));
+  log.debug('Board render', { selected, legalTargetsCount: legalTargets?.length || 0 });
   const lmFrom = lastMove?.from;
   const lmTo = lastMove?.to;
 
@@ -86,14 +86,6 @@ export default function GraphicalBoard({ board, orientation = 'white', selected,
             const isHintSource = hintSource === sq;
             const isHintTarget = hintTarget === sq;
             const strokeWidth = 3;
-
-            // Debug logging for highlighted squares
-            if (isLegal) {
-              console.log('  ✅ Highlighting legal square:', sq);
-            }
-            if (isSelected) {
-              console.log('  🔵 Highlighting selected square:', sq);
-            }
 
             return (
               <React.Fragment key={`overlay-${r}-${f}`}>

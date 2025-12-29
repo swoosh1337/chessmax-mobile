@@ -2,12 +2,15 @@ import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus } from 'react-native';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('Supabase');
 
 const supabaseUrl = process.env.EXPO_PUBLIC_SUPABASE_URL || '';
 const supabaseAnonKey = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY || '';
 
 if (!supabaseUrl || !supabaseAnonKey) {
-  console.warn('Missing Supabase credentials. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file');
+  log.warn('Missing Supabase credentials. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file');
 }
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
@@ -45,10 +48,10 @@ AppState.addEventListener('change', (state: AppStateStatus) => {
  */
 supabase.auth.onAuthStateChange((event, session) => {
   if (event === 'TOKEN_REFRESHED' && !session) {
-    console.warn('[Supabase] Token refresh failed, session cleared');
+    log.warn('Token refresh failed, session cleared');
   }
 
   if (event === 'SIGNED_OUT') {
-    console.log('[Supabase] User signed out');
+    log.info('User signed out');
   }
 });

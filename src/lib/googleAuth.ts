@@ -1,5 +1,8 @@
 import * as WebBrowser from 'expo-web-browser';
 import { supabase } from './supabase';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('GoogleAuth');
 
 // Complete the WebBrowser session
 WebBrowser.maybeCompleteAuthSession();
@@ -10,7 +13,7 @@ WebBrowser.maybeCompleteAuthSession();
  */
 export const signInWithGoogle = async () => {
   try {
-    console.log('[GoogleAuth] Initiating Google sign-in...');
+    log.debug(' Initiating Google sign-in...');
 
     const redirectUrl = 'chessmaxmobile://';
 
@@ -23,13 +26,13 @@ export const signInWithGoogle = async () => {
     });
 
     if (error) {
-      console.error('[GoogleAuth] OAuth error:', error);
+      log.error(' OAuth error:', error);
       throw error;
     }
 
     // Open OAuth URL in Safari View Controller (in-app browser)
     if (data?.url) {
-      console.log('[GoogleAuth] Opening OAuth URL...');
+      log.debug(' Opening OAuth URL...');
 
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
@@ -48,14 +51,14 @@ export const signInWithGoogle = async () => {
             access_token: accessToken,
             refresh_token: refreshToken,
           });
-          console.log('[GoogleAuth] Sign-in successful');
+          log.debug(' Sign-in successful');
         }
       } else if (result.type === 'cancel') {
         throw new Error('Sign-in cancelled');
       }
     }
   } catch (error) {
-    console.error('[GoogleAuth] Error in signInWithGoogle:', error);
+    log.error(' Error in signInWithGoogle:', error);
     throw error;
   }
 };

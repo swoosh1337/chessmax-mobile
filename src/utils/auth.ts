@@ -1,5 +1,8 @@
 import * as WebBrowser from 'expo-web-browser';
 import { supabase } from '../lib/supabase';
+import { createLogger } from './logger';
+
+const log = createLogger('Auth');
 
 // Complete the WebBrowser session
 WebBrowser.maybeCompleteAuthSession();
@@ -30,7 +33,7 @@ async function resetLocalAuthState() {
   try {
     await supabase.auth.signOut({ scope: 'local' });
   } catch (err) {
-    console.warn('[Auth] Failed to clear local auth state:', err);
+    log.warn('Failed to clear local auth state', { error: err });
   }
 }
 
@@ -40,10 +43,10 @@ async function resetLocalAuthState() {
  */
 export async function signInWithGoogle() {
   try {
-    console.log('[Google Auth] Starting Google Sign-In...');
+    log.debug('Starting Google Sign-In...');
 
     const redirectUrl = 'chessmaxmobile://';
-    console.log('[Google Auth] Redirect URL:', redirectUrl);
+    log.debug('Redirect URL', { redirectUrl });
 
     const { data, error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -54,18 +57,15 @@ export async function signInWithGoogle() {
     });
 
     if (error) {
-      console.error('[Google Auth] OAuth error:', error);
-      console.error('[Google Auth] Error message:', error.message);
-      console.error('[Google Auth] Error details:', JSON.stringify(error, null, 2));
+      log.error('Google OAuth error', error, { details: error });
       await resetLocalAuthState();
       return { ok: false, error: mapAuthError(error.message) };
     }
 
     // Open OAuth URL in Safari View Controller (in-app browser)
     if (data?.url) {
-      console.log('[Google Auth] OAuth URL received from Supabase');
-      console.log('[Google Auth] Full URL:', data.url);
-      console.log('[Google Auth] Opening in Safari View Controller...');
+      log.debug('OAuth URL received from Supabase');
+      log.debug('Opening in Safari View Controller...');
 
       // The prompt=select_account should now be in the URL from queryParams above
       const result = await WebBrowser.openAuthSessionAsync(
@@ -73,32 +73,30 @@ export async function signInWithGoogle() {
         redirectUrl
       );
 
-      console.log('[Google Auth] WebBrowser result type:', result.type);
-      console.log('[Google Auth] WebBrowser full result:', JSON.stringify(result, null, 2));
+      log.debug('WebBrowser result', { type: result.type });
 
       if (result.type === 'success' && result.url) {
-        console.log('[Google Auth] Auth successful, processing callback...');
-        console.log('[Google Auth] Callback URL:', result.url);
+        log.debug('Auth successful, processing callback...');
 
         // Parse the callback URL
         const url = new URL(result.url);
 
         // Check for PKCE authorization code (in query string)
         const code = url.searchParams.get('code');
-        console.log('[Google Auth] Authorization code present:', !!code);
+        log.debug('Authorization code present', { hasCode: !!code });
 
         if (code) {
           // PKCE flow: Exchange code for session
-          console.log('[Google Auth] Exchanging authorization code for session...');
+          log.debug('Exchanging authorization code for session...');
           const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
 
           if (sessionError) {
-            console.error('[Google Auth] Code exchange error:', sessionError);
+            log.error('Google code exchange error', sessionError);
             await resetLocalAuthState();
             return { ok: false, error: mapAuthError(sessionError.message) };
           }
 
-          console.log('[Google Auth] Sign-in successful (PKCE)');
+          log.info('Google Sign-in successful (PKCE)');
           return {
             ok: true,
             provider: 'google',
@@ -112,8 +110,7 @@ export async function signInWithGoogle() {
         const accessToken = params.get('access_token');
         const refreshToken = params.get('refresh_token');
 
-        console.log('[Google Auth] Access token present:', !!accessToken);
-        console.log('[Google Auth] Refresh token present:', !!refreshToken);
+        log.debug('Token presence', { hasAccessToken: !!accessToken, hasRefreshToken: !!refreshToken });
 
         if (accessToken && refreshToken) {
           const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
@@ -122,12 +119,12 @@ export async function signInWithGoogle() {
           });
 
           if (sessionError) {
-            console.error('[Google Auth] Session error:', sessionError);
+            log.error('Google session error', sessionError);
             await resetLocalAuthState();
             return { ok: false, error: mapAuthError(sessionError.message) };
           }
 
-          console.log('[Google Auth] Sign-in successful (implicit)');
+          log.info('Google Sign-in successful (implicit)');
           return {
             ok: true,
             provider: 'google',
@@ -136,26 +133,23 @@ export async function signInWithGoogle() {
           };
         }
 
-        console.error('[Google Auth] No code or tokens found in callback URL');
+        log.error('No code or tokens found in callback URL');
         return { ok: false, error: 'Missing authentication data' };
       } else if (result.type === 'cancel') {
-        console.log('[Google Auth] User cancelled sign-in');
+        log.debug('User cancelled sign-in');
         return { ok: false, error: 'User cancelled sign-in' };
       } else {
-        console.error('[Google Auth] Unexpected result type:', result.type);
+        log.error('Unexpected result type', undefined, { type: result.type });
         await resetLocalAuthState();
         return { ok: false, error: `Unexpected result: ${result.type}` };
       }
     } else {
-      console.error('[Google Auth] No OAuth URL received from Supabase');
-      console.error('[Google Auth] Supabase response:', JSON.stringify(data, null, 2));
+      log.error('No OAuth URL received from Supabase');
       await resetLocalAuthState();
       return { ok: false, error: 'Failed to get OAuth URL from Supabase' };
     }
   } catch (error: any) {
-    console.error('[Google Auth] Unexpected error:', error);
-    console.error('[Google Auth] Error message:', error.message);
-    console.error('[Google Auth] Error stack:', error.stack);
+    log.error('Google Auth unexpected error', error);
     await resetLocalAuthState();
     return { ok: false, error: mapAuthError(error.message) };
   }
@@ -167,7 +161,7 @@ export async function signInWithGoogle() {
  */
 export async function signInWithApple() {
   try {
-    console.log('[Apple Auth] Starting Apple Sign-In...');
+    log.debug('Starting Apple Sign-In...');
 
     const redirectUrl = 'chessmaxmobile://';
 
@@ -180,14 +174,14 @@ export async function signInWithApple() {
     });
 
     if (error) {
-      console.error('[Apple Auth] OAuth error:', error);
+      log.error('Apple OAuth error', error);
       await resetLocalAuthState();
       return { ok: false, error: mapAuthError(error.message) };
     }
 
     // Open OAuth URL in Safari View Controller (in-app browser)
     if (data?.url) {
-      console.log('[Apple Auth] Opening OAuth URL...');
+      log.debug('Opening OAuth URL...');
 
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
@@ -195,28 +189,27 @@ export async function signInWithApple() {
       );
 
       if (result.type === 'success' && result.url) {
-        console.log('[Apple Auth] Auth successful, processing callback...');
-        console.log('[Apple Auth] Callback URL:', result.url);
+        log.debug('Apple Auth successful, processing callback...');
 
         // Parse the callback URL
         const url = new URL(result.url);
 
         // Check for PKCE authorization code (in query string)
         const code = url.searchParams.get('code');
-        console.log('[Apple Auth] Authorization code present:', !!code);
+        log.debug('Authorization code present', { hasCode: !!code });
 
         if (code) {
           // PKCE flow: Exchange code for session
-          console.log('[Apple Auth] Exchanging authorization code for session...');
+          log.debug('Exchanging authorization code for session...');
           const { data: sessionData, error: sessionError } = await supabase.auth.exchangeCodeForSession(code);
 
           if (sessionError) {
-            console.error('[Apple Auth] Code exchange error:', sessionError);
+            log.error('Apple code exchange error', sessionError);
             await resetLocalAuthState();
             return { ok: false, error: mapAuthError(sessionError.message) };
           }
 
-          console.log('[Apple Auth] Sign-in successful (PKCE)');
+          log.info('Apple Sign-in successful (PKCE)');
           return {
             ok: true,
             provider: 'apple',
@@ -230,8 +223,7 @@ export async function signInWithApple() {
         const accessToken = params.get('access_token');
         const refreshToken = params.get('refresh_token');
 
-        console.log('[Apple Auth] Access token present:', !!accessToken);
-        console.log('[Apple Auth] Refresh token present:', !!refreshToken);
+        log.debug('Token presence', { hasAccessToken: !!accessToken, hasRefreshToken: !!refreshToken });
 
         if (accessToken && refreshToken) {
           const { data: sessionData, error: sessionError } = await supabase.auth.setSession({
@@ -240,12 +232,12 @@ export async function signInWithApple() {
           });
 
           if (sessionError) {
-            console.error('[Apple Auth] Session error:', sessionError);
+            log.error('Apple session error', sessionError);
             await resetLocalAuthState();
             return { ok: false, error: mapAuthError(sessionError.message) };
           }
 
-          console.log('[Apple Auth] Sign-in successful (implicit)');
+          log.info('Apple Sign-in successful (implicit)');
           return {
             ok: true,
             provider: 'apple',
@@ -254,10 +246,11 @@ export async function signInWithApple() {
           };
         }
 
-        console.error('[Apple Auth] No code or tokens found in callback URL');
+        log.error('Apple: No code or tokens found in callback URL');
         await resetLocalAuthState();
         return { ok: false, error: 'Missing authentication data' };
       } else if (result.type === 'cancel') {
+        log.debug('User cancelled Apple sign-in');
         return { ok: false, error: 'User cancelled sign-in' };
       }
     }
@@ -265,7 +258,7 @@ export async function signInWithApple() {
     await resetLocalAuthState();
     return { ok: false, error: 'Failed to get OAuth URL' };
   } catch (error: any) {
-    console.error('[Apple Auth] Error:', error);
+    log.error('Apple Auth error', error);
     await resetLocalAuthState();
     return { ok: false, error: mapAuthError(error.message) };
   }
@@ -282,10 +275,10 @@ export async function signOut() {
     // Sign out from Supabase
     await supabase.auth.signOut();
 
-    console.log('[Auth] Signed out successfully');
+    log.info('Signed out successfully');
     return { ok: true };
   } catch (error: any) {
-    console.error('[Auth] Sign out error:', error);
+    log.error('Sign out error', error);
     return { ok: false, error: error.message };
   }
 }

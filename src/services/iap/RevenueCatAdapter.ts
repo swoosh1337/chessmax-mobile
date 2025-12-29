@@ -1,6 +1,9 @@
 import Purchases, { PurchasesPackage, PurchasesOffering } from 'react-native-purchases';
 import { Platform } from 'react-native';
 import { IAPAdapter, Product, Purchase } from './types';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('RevenueCat');
 
 // Placeholder key - should be replaced by env var or user input
 const REVENUECAT_API_KEY_IOS = process.env.EXPO_PUBLIC_REVENUECAT_API_KEY_IOS || 'appl_PLACEHOLDER';
@@ -12,62 +15,62 @@ export class RevenueCatAdapter implements IAPAdapter {
     async initialize(): Promise<boolean> {
         try {
             if (this.initialized) {
-                console.log('[RevenueCat] Already initialized');
+                log.debug(' Already initialized');
                 return true;
             }
 
-            console.log('[RevenueCat] Starting initialization...');
-            console.log('[RevenueCat] Platform:', Platform.OS);
+            log.debug(' Starting initialization...');
+            log.debug(' Platform:', Platform.OS);
 
             const apiKey = Platform.select({
                 ios: REVENUECAT_API_KEY_IOS,
                 android: REVENUECAT_API_KEY_ANDROID,
             });
 
-            console.log('[RevenueCat] API Key:', apiKey ? `${apiKey.substring(0, 10)}...` : 'NOT SET');
+            log.debug(' API Key:', apiKey ? `${apiKey.substring(0, 10)}...` : 'NOT SET');
 
             if (!apiKey || apiKey.includes('PLACEHOLDER')) {
-                console.warn('[RevenueCat] No valid API key found. Please set EXPO_PUBLIC_REVENUECAT_API_KEY_IOS in .env');
+                log.warn(' No valid API key found. Please set EXPO_PUBLIC_REVENUECAT_API_KEY_IOS in .env');
                 return false;
             }
 
             if (Platform.OS === 'ios' || Platform.OS === 'android') {
                 await Purchases.configure({ apiKey });
                 this.initialized = true;
-                console.log('[RevenueCat] ✅ Initialized successfully');
+                log.debug(' ✅ Initialized successfully');
 
                 // Log customer info for debugging
                 const customerInfo = await Purchases.getCustomerInfo();
-                console.log('[RevenueCat] Customer ID:', customerInfo.originalAppUserId);
+                log.debug(' Customer ID:', customerInfo.originalAppUserId);
 
                 return true;
             }
 
-            console.warn('[RevenueCat] Unsupported platform:', Platform.OS);
+            log.warn(' Unsupported platform:', Platform.OS);
             return false;
         } catch (error) {
-            console.error('[RevenueCat] ❌ Initialization failed:', error);
+            log.error(' ❌ Initialization failed:', error);
             return false;
         }
     }
 
     async getProducts(productIds: string[]): Promise<Product[]> {
         try {
-            console.log('[RevenueCat] Fetching offerings...');
+            log.debug(' Fetching offerings...');
             const offerings = await Purchases.getOfferings();
 
-            console.log('[RevenueCat] Offerings received:', {
+            log.debug(' Offerings received:', {
                 current: offerings.current?.identifier,
                 all: Object.keys(offerings.all),
             });
 
             if (!offerings.current || !offerings.current.availablePackages) {
-                console.warn('[RevenueCat] No current offerings found');
+                log.warn(' No current offerings found');
                 return [];
             }
 
             const packages = offerings.current.availablePackages;
-            console.log('[RevenueCat] Available packages:', packages.map(pkg => ({
+            log.debug(' Available packages:', packages.map(pkg => ({
                 identifier: pkg.identifier,
                 productId: pkg.product.identifier,
                 price: pkg.product.priceString,
@@ -75,7 +78,7 @@ export class RevenueCatAdapter implements IAPAdapter {
 
             return packages.map(this.mapPackageToProduct);
         } catch (error) {
-            console.error('[RevenueCat] Error fetching products:', error);
+            log.error(' Error fetching products:', error);
             throw error;
         }
     }
@@ -130,7 +133,7 @@ export class RevenueCatAdapter implements IAPAdapter {
                 originalObject: entitlement,
             }));
         } catch (error) {
-            console.error('[RevenueCat] Restore failed:', error);
+            log.error(' Restore failed:', error);
             throw error;
         }
     }
@@ -138,7 +141,7 @@ export class RevenueCatAdapter implements IAPAdapter {
     async getSubscriptionStatus(productIds: string[]): Promise<boolean> {
         try {
             const customerInfo = await Purchases.getCustomerInfo();
-            console.log('[RevenueCat] Customer Info:', {
+            log.debug(' Customer Info:', {
                 activeEntitlements: Object.keys(customerInfo.entitlements.active),
                 allEntitlements: Object.keys(customerInfo.entitlements.all),
             });
@@ -148,14 +151,14 @@ export class RevenueCatAdapter implements IAPAdapter {
             const hasActiveEntitlement = Object.keys(customerInfo.entitlements.active).length > 0;
 
             if (hasActiveEntitlement) {
-                console.log('[RevenueCat] Active entitlements found:', Object.keys(customerInfo.entitlements.active));
+                log.debug(' Active entitlements found:', Object.keys(customerInfo.entitlements.active));
             } else {
-                console.log('[RevenueCat] No active entitlements');
+                log.debug(' No active entitlements');
             }
 
             return hasActiveEntitlement;
         } catch (error) {
-            console.error('[RevenueCat] Get status failed:', error);
+            log.error(' Get status failed:', error);
             return false;
         }
     }

@@ -4,6 +4,9 @@ import { useAuth } from './AuthContext';
 import { IAPAdapter, Product } from '../services/iap/types';
 import { RevenueCatAdapter } from '../services/iap/RevenueCatAdapter';
 import { StoreKitAdapter } from '../services/iap/StoreKitAdapter';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('IAP');
 
 // Define a minimal User interface since AuthContext is JS
 interface User {
@@ -74,7 +77,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
    */
   useEffect(() => {
     // Reset state when user changes
-    console.log('[IAP] User changed, resetting subscription state');
+    log.debug(' User changed, resetting subscription state');
     setIsPremium(false);
     setIsLoading(true);
     initializingRef.current = false;
@@ -82,7 +85,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     // Guest users
     if (!user) {
-      console.log('[IAP] Guest user - no premium access');
+      log.debug(' Guest user - no premium access');
       setIsPremium(false);
       setIsLoading(false);
       return;
@@ -90,7 +93,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     // Developer access
     if (isDeveloper) {
-      console.log('[IAP] Developer account detected - granting lifetime premium access');
+      log.debug(' Developer account detected - granting lifetime premium access');
       setIsPremium(true);
       setIsLoading(false);
       return;
@@ -101,23 +104,23 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
     const initIAP = async () => {
       initializingRef.current = true;
       try {
-        console.log('[IAP] Initializing...');
+        log.debug(' Initializing...');
 
         // Try RevenueCat first
         const rcAdapter = new RevenueCatAdapter();
         const rcInitialized = await rcAdapter.initialize();
 
         if (rcInitialized) {
-          console.log('[IAP] Using RevenueCat adapter');
+          log.debug(' Using RevenueCat adapter');
           adapterRef.current = rcAdapter;
           setUsingFallback(false);
         } else {
-          console.warn('[IAP] RevenueCat failed to initialize, falling back to StoreKit');
+          log.warn(' RevenueCat failed to initialize, falling back to StoreKit');
           const skAdapter = new StoreKitAdapter();
           const skInitialized = await skAdapter.initialize();
 
           if (skInitialized) {
-            console.log('[IAP] Using StoreKit fallback adapter');
+            log.debug(' Using StoreKit fallback adapter');
             adapterRef.current = skAdapter;
             setUsingFallback(true);
           } else {
@@ -127,27 +130,27 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
         if (adapterRef.current) {
           // Fetch products
-          console.log('[IAP] Fetching products:', SUBSCRIPTION_SKUS);
+          log.debug(' Fetching products:', SUBSCRIPTION_SKUS);
           const fetchedProducts = await adapterRef.current.getProducts(SUBSCRIPTION_SKUS);
           setProducts(fetchedProducts);
-          console.log('[IAP] Products fetched:', fetchedProducts.length);
+          log.debug(' Products fetched:', fetchedProducts.length);
 
           // Check status
           const hasActiveSub = await adapterRef.current.getSubscriptionStatus(SUBSCRIPTION_SKUS);
-          console.log('[IAP] Has active subscription:', hasActiveSub);
+          log.debug(' Has active subscription:', hasActiveSub);
           setIsPremium(hasActiveSub);
         }
 
         setIsLoading(false);
       } catch (err: any) {
-        console.error('[IAP] Init error:', err);
+        log.error(' Init error:', err);
 
         // In development (Expo Go or simulator), IAP will fail - that's expected
         // Don't show error to user, just log it
         const isDevelopmentEnvironment = __DEV__ || err.message?.includes('Expo Go') || err.message?.includes('simulator');
 
         if (isDevelopmentEnvironment) {
-          console.warn('[IAP] Running in development environment - IAP features disabled');
+          log.warn(' Running in development environment - IAP features disabled');
           setError(null); // Don't show error to user
         } else {
           setError(err.message || 'Failed to initialize purchases');
@@ -171,16 +174,16 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     try {
       setError(null);
-      console.log('[IAP] Purchasing:', sku);
+      log.debug(' Purchasing:', sku);
 
       await adapterRef.current.purchase(sku);
 
       // If purchase successful (no error thrown), update status
       // Some adapters might need a re-check, but usually purchase returns success
       setIsPremium(true);
-      console.log('[IAP] Purchase successful');
+      log.debug(' Purchase successful');
     } catch (err: any) {
-      console.error('[IAP] Purchase error:', err);
+      log.error(' Purchase error:', err);
       if (err.message !== 'User cancelled') {
         setError(err.message || 'Purchase failed');
       }
@@ -196,10 +199,10 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
     try {
       setError(null);
-      console.log('[IAP] Restoring purchases...');
+      log.debug(' Restoring purchases...');
 
       const restored = await adapterRef.current.restore();
-      console.log('[IAP] Restored:', restored.length);
+      log.debug(' Restored:', restored.length);
 
       if (restored.length > 0) {
         // Verify if any restored purchase matches our SKUs
@@ -211,7 +214,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
 
         if (hasValidRestore) {
           setIsPremium(true);
-          console.log('[IAP] Restore successful, premium granted');
+          log.debug(' Restore successful, premium granted');
         } else {
           throw new Error('No active subscriptions found to restore');
         }
@@ -219,7 +222,7 @@ export function SubscriptionProvider({ children }: { children: React.ReactNode }
         throw new Error('No purchases found to restore');
       }
     } catch (err: any) {
-      console.error('[IAP] Restore error:', err);
+      log.error(' Restore error:', err);
       setError(err.message || 'Failed to restore purchases');
       throw err;
     }

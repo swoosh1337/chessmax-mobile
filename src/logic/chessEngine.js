@@ -1,4 +1,7 @@
 import { Chess } from 'chess.js';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('ChessEngine');
 
 export class ChessEngine {
   constructor(fen) {
@@ -66,7 +69,7 @@ export class ChessEngine {
       const matchingMove = legalMoves.find(m => m.san === san);
       return matchingMove || null;
     } catch (e) {
-      console.warn('Error previewing SAN:', san, e);
+      log.warn('Error previewing SAN', { san, error: e.message });
       return null;
     }
   }

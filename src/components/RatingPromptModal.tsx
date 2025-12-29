@@ -2,6 +2,9 @@ import { useEffect } from 'react';
 import { Linking } from 'react-native';
 import * as StoreReview from 'expo-store-review';
 import { ratingStorage } from '@/src/utils/storage';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('RatingPromptModal');
 
 export default function RatingPromptModal({ visible, onSubmit, onCancel }: { visible: boolean; onSubmit: () => void; onCancel: () => void; }) {
   // Automatically show native review when modal becomes visible
@@ -32,7 +35,7 @@ export default function RatingPromptModal({ visible, onSubmit, onCancel }: { vis
         await ratingStorage.markAsRated();
       }
     } catch (error) {
-      console.error('[RatingPromptModal] Error requesting review:', error);
+      log.error('Error requesting review', error);
     } finally {
       // Continue with onboarding flow
       onSubmit();

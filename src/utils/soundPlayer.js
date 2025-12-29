@@ -1,6 +1,10 @@
 // Sound playback for React Native (Expo)
 // Mirrors the web app's centralized SoundManager API for consistency
 
+import { createLogger } from './logger';
+
+const log = createLogger('SoundPlayer');
+
 let ExpoAudio;
 let ExpoAV;
 try {
@@ -67,7 +71,7 @@ async function ensureLoaded(type) {
   const { type: impl, AudioNS } = getAudioImpl();
   if (!implChoice) {
     implChoice = impl;
-    try { console.log('[sound] Using implementation:', implChoice); } catch {}
+    log.debug('Using audio implementation', { impl: implChoice });
   }
   if (impl === 'none') throw new Error('No audio implementation available (expo-av or expo-audio)');
   if (cache[type]) return cache[type];
@@ -99,7 +103,7 @@ export async function play(type) {
 
   const src = sources[type];
   if (!src) {
-    console.warn(`Unknown sound type: ${type}`);
+    log.warn('Unknown sound type', { type });
     return;
   }
 
@@ -133,7 +137,7 @@ export async function play(type) {
       return;
     }
   } catch (e) {
-    console.warn(`Failed to play sound ${type}:`, e.message);
+    log.warn('Failed to play sound', { type, error: e.message });
   }
 }
 
@@ -150,13 +154,13 @@ export async function preloadSounds() {
         try {
           await ensureLoaded(type);
         } catch (e) {
-          console.warn(`Failed to preload sound ${type}`);
+          log.warn('Failed to preload sound', { type });
         }
       })
     );
-    console.log('✅ All sounds preloaded');
+    log.debug('All sounds preloaded');
   } catch (e) {
-    console.warn('Failed to preload sounds:', e.message);
+    log.warn('Failed to preload sounds', { error: e.message });
   }
 }
 

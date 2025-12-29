@@ -7,6 +7,9 @@ import { useAuth } from '@/src/context/AuthContext';
 import LeaderboardSkeleton from '@/src/components/LeaderboardSkeleton';
 import { formatXP, getRankSuffix } from '@/src/utils/xp';
 import { useFocusEffect } from '@react-navigation/native';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('Leaderboard');
 
 type TabType = 'allTime' | 'weekly' | 'speedrun';
 
@@ -89,12 +92,13 @@ export default function LeaderboardScreen() {
       ? data.currentUser.username
       : (item.username || `Player${item.id.substring(0, 6)}`);
 
-    if (isCurrentUser) {
-      console.log('[Leaderboard] Rendering current user entry');
-      console.log('  - item.username:', item.username);
-      console.log('  - data.currentUser?.username:', data?.currentUser?.username);
-      console.log('  - displayName:', displayName);
-      console.log('  - perfect_completions:', item.perfect_completions);
+    if (isCurrentUser && __DEV__) {
+      log.debug('Rendering current user entry', {
+        itemUsername: item.username,
+        currentUserUsername: data?.currentUser?.username,
+        displayName,
+        perfectCompletions: item.perfect_completions,
+      });
     }
 
     return (
@@ -144,17 +148,22 @@ export default function LeaderboardScreen() {
       const userRank = data.currentUserSpeedrun.rank || 999;
       const userInTop20 = userRank <= 20;
 
-      console.log('[Leaderboard] User rank:', userRank);
-      console.log('[Leaderboard] User in top 20?', userInTop20);
+      if (__DEV__) {
+        log.debug('User rank info', { userRank, userInTop20 });
+      }
 
       // IMPORTANT: Don't show "YOUR RANK" if user is in top 20
       if (userInTop20) {
-        console.log('[Leaderboard] User is in top 20, not showing YOUR RANK section');
+        if (__DEV__) {
+          log.debug('User is in top 20, not showing YOUR RANK section');
+        }
         return null;
       }
 
       // Show user's rank only if they're outside top 100
-      console.log('[Leaderboard] Showing YOUR RANK section for user outside top 100');
+      if (__DEV__) {
+        log.debug('Showing YOUR RANK section for user outside top 100');
+      }
 
       // Use currentUser's username if available
       const displayName = data.currentUser?.username

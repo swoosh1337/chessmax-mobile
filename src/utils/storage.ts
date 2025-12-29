@@ -1,5 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
+import { createLogger } from './logger';
+
+const log = createLogger('Storage');
 
 /**
  * Storage keys
@@ -31,7 +34,7 @@ export const onboardingStorage = {
         .single();
 
       if (error) {
-        console.error('[Onboarding] Error checking onboarding status:', error);
+        log.error('Error checking onboarding status', error);
         // If profile doesn't exist, create it with seen_onboarding = false
         if (error.code === 'PGRST116') {
           const { error: createError } = await supabase
@@ -47,7 +50,7 @@ export const onboardingStorage = {
             });
           
           if (createError) {
-            console.error('[Onboarding] Error creating profile:', createError);
+            log.error('Error creating profile', createError);
           }
         }
         return false; // Default to showing onboarding on error
@@ -55,7 +58,7 @@ export const onboardingStorage = {
 
       return profile?.seen_onboarding ?? false;
     } catch (error) {
-      console.error('[Onboarding] Error checking onboarding status:', error);
+      log.error('Error checking onboarding status', error);
       return false; // Default to showing onboarding on error
     }
   },
@@ -67,7 +70,7 @@ export const onboardingStorage = {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) {
-        console.warn('[Onboarding] Cannot mark onboarding as seen: user not authenticated');
+        log.warn('Cannot mark onboarding as seen: user not authenticated');
         return;
       }
 
@@ -77,7 +80,7 @@ export const onboardingStorage = {
         .eq('id', user.id);
 
       if (error) {
-        console.error('[Onboarding] Error marking onboarding as seen:', error);
+        log.error('Error marking onboarding as seen', error);
         // If profile doesn't exist, create it with seen_onboarding = true
         if (error.code === 'PGRST116') {
           const { error: createError } = await supabase
@@ -93,12 +96,12 @@ export const onboardingStorage = {
             });
           
           if (createError) {
-            console.error('[Onboarding] Error creating profile:', createError);
+            log.error('Error creating profile', createError);
           }
         }
       }
     } catch (error) {
-      console.error('[Onboarding] Error marking onboarding as seen:', error);
+      log.error('Error marking onboarding as seen', error);
     }
   },
 
@@ -118,10 +121,10 @@ export const onboardingStorage = {
         .eq('id', user.id);
 
       if (error) {
-        console.error('[Onboarding] Error resetting onboarding:', error);
+        log.error('Error resetting onboarding', error);
       }
     } catch (error) {
-      console.error('[Onboarding] Error resetting onboarding:', error);
+      log.error('Error resetting onboarding', error);
     }
   },
 };
@@ -138,7 +141,7 @@ export const ratingStorage = {
       const value = await AsyncStorage.getItem(KEYS.HAS_RATED);
       return value === 'true';
     } catch (error) {
-      console.error('[Storage] Error checking rating status:', error);
+      log.error('Error checking rating status', error);
       return false;
     }
   },
@@ -151,7 +154,7 @@ export const ratingStorage = {
       await AsyncStorage.setItem(KEYS.HAS_RATED, 'true');
       // console.log('[Storage] App marked as rated');
     } catch (error) {
-      console.error('[Storage] Error marking as rated:', error);
+      log.error('Error marking as rated', error);
     }
   },
 
@@ -163,7 +166,7 @@ export const ratingStorage = {
       const value = await AsyncStorage.getItem(KEYS.VARIATIONS_COMPLETED);
       return value ? parseInt(value, 10) : 0;
     } catch (error) {
-      console.error('[Storage] Error getting variations completed:', error);
+      log.error('Error getting variations completed', error);
       return 0;
     }
   },
@@ -179,7 +182,7 @@ export const ratingStorage = {
       // console.log('[Storage] Variations completed:', newCount);
       return newCount;
     } catch (error) {
-      console.error('[Storage] Error incrementing variations:', error);
+      log.error('Error incrementing variations', error);
       return 0;
     }
   },
@@ -192,7 +195,7 @@ export const ratingStorage = {
       const value = await AsyncStorage.getItem(KEYS.LAST_RATING_PROMPT);
       return value ? parseInt(value, 10) : 0;
     } catch (error) {
-      console.error('[Storage] Error getting last rating prompt:', error);
+      log.error('Error getting last rating prompt', error);
       return 0;
     }
   },
@@ -205,7 +208,7 @@ export const ratingStorage = {
       await AsyncStorage.setItem(KEYS.LAST_RATING_PROMPT, count.toString());
       // console.log('[Storage] Last rating prompt updated:', count);
     } catch (error) {
-      console.error('[Storage] Error updating last rating prompt:', error);
+      log.error('Error updating last rating prompt', error);
     }
   },
 
@@ -237,7 +240,7 @@ export const ratingStorage = {
 
       return false;
     } catch (error) {
-      console.error('[Storage] Error checking if should show rating prompt:', error);
+      log.error('Error checking if should show rating prompt', error);
       return false;
     }
   },
@@ -254,7 +257,7 @@ export const ratingStorage = {
       ]);
       // console.log('[Storage] Rating data reset');
     } catch (error) {
-      console.error('[Storage] Error resetting rating data:', error);
+      log.error('Error resetting rating data', error);
     }
   },
 };

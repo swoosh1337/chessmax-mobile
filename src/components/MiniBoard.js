@@ -4,6 +4,9 @@ import Svg, { Defs, LinearGradient, Stop, Rect, Text as SvgText } from 'react-na
 import { ChessEngine } from '../logic/chessEngine';
 import { parsePGN } from '../utils/pgnParser';
 import { colors } from '../theme/colors';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('MiniBoard');
 
 const PIECE_UNICODE = {
   p: '♟', r: '♜', n: '♞', b: '♝', q: '♛', k: '♚',
@@ -22,20 +25,20 @@ export default function MiniBoard({ pgn, size = 320 }) {
       for (let i = 0; i < movesToPlay; i++) {
         if (sequence.white[i]) {
           try { engine.move(sequence.white[i]); } catch (err) {
-            console.error('Failed to apply PGN move (white)', {
+            log.error('Failed to apply PGN move (white)', err, {
               move: sequence.white[i],
               index: i,
               pgnSnippet: String(pgn).slice(0, 120)
-            }, err);
+            });
           }
         }
         if (sequence.black[i]) {
           try { engine.move(sequence.black[i]); } catch (err) {
-            console.error('Failed to apply PGN move (black)', {
+            log.error('Failed to apply PGN move (black)', err, {
               move: sequence.black[i],
               index: i,
               pgnSnippet: String(pgn).slice(0, 120)
-            }, err);
+            });
           }
         }
       }

@@ -21,6 +21,9 @@ import {
   getReminderSettings,
   checkNotificationPermissions
 } from '@/src/utils/notifications';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('Profile');
 
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
@@ -72,7 +75,7 @@ export default function ProfileScreen() {
         setCachedProfile(JSON.parse(cached));
       }
     } catch (error) {
-      console.error('[Profile] Error loading cache:', error);
+      log.error('Error loading cache', error);
     }
   };
 
@@ -82,7 +85,7 @@ export default function ProfileScreen() {
       await AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
       setCachedProfile(profile);
     } catch (error) {
-      console.error('[Profile] Error saving cache:', error);
+      log.error('Error saving cache', error);
     }
   };
 
@@ -113,7 +116,7 @@ export default function ProfileScreen() {
             });
 
           if (createError) {
-            console.error('[Profile] Error creating profile:', createError);
+            log.error('Error creating profile', createError);
           } else {
             // Profile created successfully, refetch leaderboard
             refetch();
@@ -126,7 +129,7 @@ export default function ProfileScreen() {
         setUsername(data.username || '');
       }
     } catch (error) {
-      console.error('[Profile] Error loading profile:', error);
+      log.error('Error loading profile', error);
     } finally {
       setLoadingProfile(false);
     }
@@ -155,7 +158,7 @@ export default function ProfileScreen() {
         } else {
           Alert.alert('Error', 'Failed to update username. Please try again.');
         }
-        console.error('[Profile] Error updating username:', error);
+        log.error('Error updating username', error);
         return;
       }
 
@@ -165,7 +168,7 @@ export default function ProfileScreen() {
       // Refetch leaderboard to update cache
       refetch();
     } catch (error) {
-      console.error('[Profile] Error saving username:', error);
+      log.error('Error saving username', error);
       Alert.alert('Error', 'Failed to update username. Please try again.');
     } finally {
       setSavingUsername(false);
@@ -189,7 +192,7 @@ export default function ProfileScreen() {
         setReminderTime(time);
       }
     } catch (error) {
-      console.error('[Profile] Error loading reminder settings:', error);
+      log.error('Error loading reminder settings', error);
     }
   };
 
@@ -226,7 +229,7 @@ export default function ProfileScreen() {
         Alert.alert('Success', 'Daily reminder has been turned off.');
       }
     } catch (error: any) {
-      console.error('[Profile] Error toggling reminder:', error);
+      log.error('Error toggling reminder', error);
       Alert.alert('Error', error.message || 'Failed to update reminder settings.');
     }
   };
@@ -278,7 +281,7 @@ export default function ProfileScreen() {
         `Daily training reminder set for ${timeString}. You'll receive a notification every day at this time.`
       );
     } catch (error: any) {
-      console.error('[Profile] Error scheduling reminder:', error);
+      log.error('Error scheduling reminder', error);
       Alert.alert('Error', error.message || 'Failed to set reminder.');
     }
   };
@@ -349,7 +352,7 @@ export default function ProfileScreen() {
                 await AsyncStorage.clear();
               } catch (storageError) {
                 // Log but don't fail - account is already deleted
-                console.warn('Error clearing local storage:', storageError);
+                log.warn('Error clearing local storage', { error: storageError });
               }
 
               // Sign out after successful deletion
@@ -358,7 +361,7 @@ export default function ProfileScreen() {
 
               Alert.alert('Account Deleted', 'Your account has been successfully deleted.');
             } catch (error: any) {
-              console.error('Delete account error:', error);
+              log.error('Delete account error', error);
               Alert.alert(
                 'Error',
                 'Failed to delete account. Please contact support or try again later.'

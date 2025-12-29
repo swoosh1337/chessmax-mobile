@@ -2,6 +2,9 @@ import { useEffect } from 'react';
 import { Linking } from 'react-native';
 import { ratingStorage } from '@/src/utils/storage';
 import * as StoreReview from 'expo-store-review';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('RatingModal');
 
 interface RatingModalProps {
   visible: boolean;
@@ -41,7 +44,7 @@ export default function RatingModal({ visible, onClose }: RatingModalProps) {
         await ratingStorage.markAsRated();
       }
     } catch (error) {
-      console.error('[RatingModal] Error requesting review:', error);
+      log.error('Error requesting review', error);
     } finally {
       // Close modal after showing native review
       onClose();

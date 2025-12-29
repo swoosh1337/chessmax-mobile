@@ -1,6 +1,9 @@
 import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('Training');
 
 interface TrainingSession {
   id: string;
@@ -155,7 +158,7 @@ export function TrainingProvider({ children }: { children: React.ReactNode }) {
 
       setIsLoading(false);
     } catch (error) {
-      console.error('[Training] Error refreshing stats:', error);
+      log.error('Error refreshing stats', error);
       setIsLoading(false);
     }
   }, [user]);
@@ -189,8 +192,7 @@ export function TrainingProvider({ children }: { children: React.ReactNode }) {
       setCurrentSession(data);
       return data.id;
     } catch (error: any) {
-      console.error('[Training] Error starting session:', error);
-      console.error('[Training] Error details:', error.message, error.code, error.details);
+      log.error('Error starting session', error, { message: error.message, code: error.code, details: error.details });
       throw error;
     }
   }, [user]);
@@ -226,7 +228,7 @@ export function TrainingProvider({ children }: { children: React.ReactNode }) {
       // Refresh stats after completing session
       await refreshStats();
     } catch (error) {
-      console.error('[Training] Error ending session:', error);
+      log.error('Error ending session', error);
       throw error;
     }
   }, [user, refreshStats]);

@@ -1,6 +1,9 @@
 import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createLogger } from './logger';
+
+const log = createLogger('Notifications');
 
 const REMINDER_STORAGE_KEY = '@chessmax_training_reminder';
 
@@ -29,7 +32,7 @@ export async function requestNotificationPermissions(): Promise<boolean> {
     }
 
     if (finalStatus !== 'granted') {
-      console.log('[Notifications] Permission not granted');
+      log.debug('Permission not granted');
       return false;
     }
 
@@ -43,10 +46,10 @@ export async function requestNotificationPermissions(): Promise<boolean> {
       });
     }
 
-    console.log('[Notifications] Permission granted');
+    log.debug('Permission granted');
     return true;
   } catch (error) {
-    console.error('[Notifications] Error requesting permissions:', error);
+    log.error('Error requesting permissions', error);
     return false;
   }
 }
@@ -91,10 +94,10 @@ export async function scheduleDailyReminder(hour: number, minute: number): Promi
       JSON.stringify({ notificationId, hour, minute, enabled: true })
     );
 
-    console.log('[Notifications] Daily reminder scheduled:', { hour, minute, notificationId });
+    log.info('Daily reminder scheduled', { hour, minute, notificationId });
     return notificationId;
   } catch (error) {
-    console.error('[Notifications] Error scheduling daily reminder:', error);
+    log.error('Error scheduling daily reminder', error);
     throw error;
   }
 }
@@ -110,15 +113,15 @@ export async function cancelDailyReminder(): Promise<void> {
       const { notificationId } = JSON.parse(reminderData);
       if (notificationId) {
         await Notifications.cancelScheduledNotificationAsync(notificationId);
-        console.log('[Notifications] Cancelled notification:', notificationId);
+        log.debug('Cancelled notification', { notificationId });
       }
     }
 
     // Clear storage
     await AsyncStorage.removeItem(REMINDER_STORAGE_KEY);
-    console.log('[Notifications] Daily reminder cancelled');
+    log.info('Daily reminder cancelled');
   } catch (error) {
-    console.error('[Notifications] Error cancelling daily reminder:', error);
+    log.error('Error cancelling daily reminder', error);
   }
 }
 
@@ -140,7 +143,7 @@ export async function getReminderSettings(): Promise<{
 
     return null;
   } catch (error) {
-    console.error('[Notifications] Error getting reminder settings:', error);
+    log.error('Error getting reminder settings', error);
     return null;
   }
 }
@@ -153,7 +156,7 @@ export async function checkNotificationPermissions(): Promise<boolean> {
     const { status } = await Notifications.getPermissionsAsync();
     return status === 'granted';
   } catch (error) {
-    console.error('[Notifications] Error checking permissions:', error);
+    log.error('Error checking permissions', error);
     return false;
   }
 }
@@ -164,10 +167,10 @@ export async function checkNotificationPermissions(): Promise<boolean> {
 export async function getAllScheduledNotifications() {
   try {
     const notifications = await Notifications.getAllScheduledNotificationsAsync();
-    console.log('[Notifications] Scheduled notifications:', notifications);
+    log.debug('Scheduled notifications', { count: notifications.length });
     return notifications;
   } catch (error) {
-    console.error('[Notifications] Error getting scheduled notifications:', error);
+    log.error('Error getting scheduled notifications', error);
     return [];
   }
 }

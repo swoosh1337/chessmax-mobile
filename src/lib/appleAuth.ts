@@ -1,5 +1,8 @@
 import * as WebBrowser from 'expo-web-browser';
 import { supabase } from './supabase';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('AppleAuth');
 
 /**
  * Sign in with Apple using Supabase OAuth
@@ -7,7 +10,7 @@ import { supabase } from './supabase';
  */
 export const signInWithApple = async () => {
   try {
-    console.log('[AppleAuth] Initiating Apple sign-in...');
+    log.debug(' Initiating Apple sign-in...');
 
     const redirectUrl = 'chessmaxmobile://';
 
@@ -20,13 +23,13 @@ export const signInWithApple = async () => {
     });
 
     if (error) {
-      console.error('[AppleAuth] OAuth error:', error);
+      log.error(' OAuth error:', error);
       throw error;
     }
 
     // Open OAuth URL in Safari View Controller (in-app browser)
     if (data?.url) {
-      console.log('[AppleAuth] Opening OAuth URL...');
+      log.debug(' Opening OAuth URL...');
 
       const result = await WebBrowser.openAuthSessionAsync(
         data.url,
@@ -45,14 +48,14 @@ export const signInWithApple = async () => {
             access_token: accessToken,
             refresh_token: refreshToken,
           });
-          console.log('[AppleAuth] Sign-in successful');
+          log.debug(' Sign-in successful');
         }
       } else if (result.type === 'cancel') {
         throw new Error('Sign-in cancelled');
       }
     }
   } catch (error) {
-    console.error('[AppleAuth] Error in signInWithApple:', error);
+    log.error(' Error in signInWithApple:', error);
     throw error;
   }
 };

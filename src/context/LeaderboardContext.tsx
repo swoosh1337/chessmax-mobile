@@ -2,6 +2,9 @@ import React, { createContext, useContext, useState, useCallback, useEffect } fr
 import { supabase } from '../lib/supabase';
 import { RealtimeChannel } from '@supabase/supabase-js';
 import { useAuth } from './AuthContext';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('LeaderboardContext');
 
 export interface UserProfile {
   id: string;
@@ -85,7 +88,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
         });
 
       if (speedrunError) {
-        console.error('[LeaderboardContext] Speedrun error:', speedrunError);
+        log.error('Speedrun leaderboard error', speedrunError);
         // Don't throw - continue with other leaderboards
       }
 
@@ -231,7 +234,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
         currentUserSpeedrun,
       });
     } catch (err: any) {
-      console.error('[LeaderboardContext] Fetch error:', err);
+      log.error('Failed to fetch leaderboard', err);
       setError(err.message || 'Failed to fetch leaderboard');
     } finally {
       setLoading(false);
@@ -295,7 +298,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
       return (leaderboardType: string) => {
         if (timeoutId) clearTimeout(timeoutId);
         timeoutId = setTimeout(() => {
-          console.log('[LeaderboardContext] Debounced refetch triggered for:', leaderboardType);
+          log.debug('Debounced refetch triggered', { leaderboardType });
           fetchLeaderboard();
         }, 2000); // 2 second delay
       };
@@ -309,7 +312,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
    */
   const subscribeToUpdates = useCallback((enabled: boolean) => {
     if (enabled && !subscription) {
-      console.log('[LeaderboardContext] Subscribing to optimized real-time updates');
+      log.debug('Subscribing to optimized real-time updates');
 
       const channel = supabase
         .channel('leaderboard_changes')
@@ -321,7 +324,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
             table: 'leaderboard_update_queue',
           },
           (payload) => {
-            console.log('[LeaderboardContext] Leaderboard update queued:', payload.new);
+            log.debug('Leaderboard update queued', { payload: payload.new });
             const leaderboardType = payload.new?.leaderboard_type;
 
             // Debounced refetch (only when top 20 changes)
@@ -334,7 +337,7 @@ export function LeaderboardProvider({ children }: { children: React.ReactNode })
 
       setSubscription(channel);
     } else if (!enabled && subscription) {
-      console.log('[LeaderboardContext] Unsubscribing from real-time updates');
+      log.debug('Unsubscribing from real-time updates');
       subscription.unsubscribe();
       setSubscription(null);
     }

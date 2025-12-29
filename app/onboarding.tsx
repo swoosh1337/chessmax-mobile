@@ -6,6 +6,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/src/theme/colors';
 import RatingPromptModal from '@/src/components/RatingPromptModal';
 import { onboardingStorage } from '@/src/utils/storage';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('Onboarding');
 
 type SlideKey = 'welcome' | 'precision' | 'progress' | 'leaderboard' | 'done';
 
@@ -52,7 +55,7 @@ export default function OnboardingScreen() {
   
   // Debug logging
   if (__DEV__) {
-    console.log('[Onboarding] Device info:', { width, height, isTablet, slideWidth });
+    log.debug('Device info', { width, height, isTablet, slideWidth });
   }
 
   const scrollRef = useRef<ScrollView>(null);

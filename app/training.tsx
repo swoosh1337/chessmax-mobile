@@ -25,6 +25,9 @@ import pieceMap from '@/src/assets/pieces/index';
 import TrainingModeSelector from '@/src/components/TrainingModeSelector';
 import InstructionDisplay from '@/src/components/InstructionDisplay';
 import { TrainingMode, TrainingModeId, MoveExplanation, TRAINING_MODES } from '@/src/types/trainingModes';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('Training');
 
 
 // Helper to clean opening name for display (removes V2/V3 prefix, "for white/black", "lvl X")
@@ -141,13 +144,13 @@ export default function TrainingScreen() {
 
             // If found an uncompleted variation (and it's not the first one we're already on), switch to it
             if (firstUncompletedIndex > 0) {
-              console.log('[Training] Auto-advancing to variation index:', firstUncompletedIndex);
+              log.debug('Auto-advancing to variation index', { firstUncompletedIndex });
               switchToVariation(firstUncompletedIndex);
             }
           }
         }
       } catch (err) {
-        console.error('[Training] Error fetching completions:', err);
+        log.error('Error fetching completions', err);
       }
     };
 
@@ -236,7 +239,7 @@ export default function TrainingScreen() {
           setWeeklyProgress(weekProgress);
         }
       } catch (err) {
-        console.error('[Training] Error fetching streak:', err);
+        log.error('Error fetching streak', err);
       }
     };
 
@@ -250,13 +253,16 @@ export default function TrainingScreen() {
         const lastShownStr = await AsyncStorage.getItem('@last_streak_celebration');
         const now = new Date();
 
-        console.log('[Training] Checking streak celebration...');
-        console.log('[Training] Current time:', now.toISOString());
-        console.log('[Training] Last shown:', lastShownStr);
+        if (__DEV__) {
+          log.debug('Checking streak celebration', {
+            currentTime: now.toISOString(),
+            lastShown: lastShownStr,
+          });
+        }
 
         if (!lastShownStr) {
           // Never shown before, show it
-          console.log('[Training] Never shown before, showing celebration');
+          if (__DEV__) log.debug('Never shown before, showing celebration');
           setShowStreakCelebration(true);
           return;
         }
@@ -271,23 +277,27 @@ export default function TrainingScreen() {
         const lastShownDate = new Date(lastShown);
         lastShownDate.setHours(12, 0, 0, 0);
 
-        console.log('[Training] Today 12 PM:', today12PM.toISOString());
-        console.log('[Training] Last shown date 12 PM:', lastShownDate.toISOString());
-        console.log('[Training] Now >= today12PM?', now >= today12PM);
-        console.log('[Training] Different days?', today12PM.getTime() !== lastShownDate.getTime());
+        if (__DEV__) {
+          log.debug('Streak celebration check', {
+            today12PM: today12PM.toISOString(),
+            lastShownDate12PM: lastShownDate.toISOString(),
+            isAfter12PM: now >= today12PM,
+            isDifferentDay: today12PM.getTime() !== lastShownDate.getTime(),
+          });
+        }
 
         // Show if:
         // 1. Current time is after 12 PM today AND
         // 2. Last shown was on a different day (comparing 12 PM timestamps)
         if (now >= today12PM && today12PM.getTime() !== lastShownDate.getTime()) {
-          console.log('[Training] New day after 12 PM, showing celebration');
+          if (__DEV__) log.debug('New day after 12 PM, showing celebration');
           setShowStreakCelebration(true);
         } else {
-          console.log('[Training] Already shown today or before 12 PM, hiding celebration');
+          if (__DEV__) log.debug('Already shown today or before 12 PM, hiding celebration');
           setShowStreakCelebration(false);
         }
       } catch (error) {
-        console.error('[Training] Error checking streak celebration:', error);
+        log.error('Error checking streak celebration', error);
         setShowStreakCelebration(true); // Default to showing it
       }
     };
@@ -300,14 +310,14 @@ export default function TrainingScreen() {
     const markStreakShown = async () => {
       // Only save if modal is open, streak is showing, AND we haven't saved this session
       if (completionOpen && showStreakCelebration && !streakSavedThisSessionRef.current) {
-        console.log('[STREAK DEBUG] Saving streak timestamp to AsyncStorage');
+        if (__DEV__) log.debug('Saving streak timestamp to AsyncStorage');
         streakSavedThisSessionRef.current = true; // Mark as saved for this session
         try {
           await AsyncStorage.setItem('@last_streak_celebration', new Date().toISOString());
-          console.log('[STREAK DEBUG] Saved successfully');
+          if (__DEV__) log.debug('Saved successfully');
           // DON'T update state here - it causes modal to re-render while open
         } catch (error) {
-          console.error('[Training] Error saving streak celebration timestamp:', error);
+          log.error('Error saving streak celebration timestamp', error);
         }
       }
     };
@@ -330,7 +340,7 @@ export default function TrainingScreen() {
         }
         // If no saved preference, keep default (drill) - no else needed
       } catch (error) {
-        console.error('[Training] Error loading training mode:', error);
+        log.error('Error loading training mode', error);
       }
     };
 
@@ -343,7 +353,7 @@ export default function TrainingScreen() {
       try {
         await AsyncStorage.setItem('@training_mode', trainingModeId);
       } catch (error) {
-        console.error('[Training] Error saving training mode:', error);
+        log.error('Error saving training mode', error);
       }
     };
 
@@ -381,21 +391,23 @@ export default function TrainingScreen() {
           opening.category
         );
         setTrainingSessionId(sessionId);
-        console.log('[Training] Session started:', sessionId);
+        if (__DEV__) log.debug('Session started', { sessionId });
       } catch (error) {
-        console.error('[Training] Error starting session:', error);
+        log.error('Error starting session', error);
       }
     };
 
     initSession();
   }, [user, opening, currentVariationIndex]);
 
-  console.log('🎯 TRAINING SCREEN - Opening data:', {
-    name: opening?.name,
-    color: opening?.color,
-    level: opening?.level,
-    variations: opening?.variations?.length
-  });
+  if (__DEV__) {
+    log.debug('TRAINING SCREEN - Opening data', {
+      name: opening?.name,
+      color: opening?.color,
+      level: opening?.level,
+      variations: opening?.variations?.length,
+    });
+  }
 
   const [engine] = useState(() => new ChessEngine());
   const [orientation, setOrientation] = useState(opening?.color === 'b' ? 'black' : 'white');
@@ -427,13 +439,13 @@ export default function TrainingScreen() {
   useEffect(() => {
     const loadPieces = async () => {
       try {
-        console.log('🎨 Preloading chess pieces...');
+        if (__DEV__) log.debug('Preloading chess pieces');
         const pieceAssets = Object.values(pieceMap);
         await Asset.loadAsync(pieceAssets);
-        console.log('✅ Chess pieces loaded');
+        if (__DEV__) log.debug('Chess pieces loaded');
         setPiecesLoaded(true);
       } catch (error) {
-        console.error('❌ Failed to load pieces:', error);
+        log.error('Failed to load pieces', error);
         // Still allow the game to continue even if preload fails
         setPiecesLoaded(true);
       }
@@ -443,11 +455,11 @@ export default function TrainingScreen() {
 
   // Debug logging for state changes
   useEffect(() => {
-    console.log('🟢 STATE UPDATE - selected:', selected, 'legalTargets:', legalTargets);
+    if (__DEV__) log.debug('STATE UPDATE', { selected, legalTargets });
   }, [selected, legalTargets]);
 
   useEffect(() => {
-    console.log('💡 HINT STATE UPDATE - hintSource:', hintSource, 'hintTarget:', hintTarget);
+    if (__DEV__) log.debug('HINT STATE UPDATE', { hintSource, hintTarget });
   }, [hintSource, hintTarget]);
 
   const sequence = useMemo(() => {
@@ -505,7 +517,7 @@ export default function TrainingScreen() {
       try {
         engine.move(sequence.white[0]);
       } catch (err) {
-        console.error('Failed to apply first white move:', err);
+        log.error('Failed to apply first white move', err);
       }
     }
   };
@@ -558,7 +570,7 @@ export default function TrainingScreen() {
     if (index < 0 || index >= variations.length) return;
 
     const newVariation = variations[index];
-    console.log('🔄 switchToVariation:', { index, variationName: newVariation?.name });
+    if (__DEV__) log.debug('switchToVariation', { index, variationName: newVariation?.name });
 
     // Update state - preserve the original opening name, just update the pgn and other variation data
     setCurrentVariationIndex(index);
@@ -583,9 +595,9 @@ export default function TrainingScreen() {
     if (newPlayerColor === 'b' && newSequence.white?.[0]) {
       try {
         engine.move(newSequence.white[0]);
-        console.log('🔄 Made first white move for black player:', newSequence.white[0]);
+        if (__DEV__) log.debug('Made first white move for black player', { move: newSequence.white[0] });
       } catch (err) {
-        console.error('❌ Error making first white move:', err);
+        log.error('Error making first white move', err);
       }
     }
 
@@ -607,7 +619,7 @@ export default function TrainingScreen() {
       updateCurrentExplanation();
     }, 100);
 
-    console.log('✅ Board reset complete for variation:', newVariation?.name);
+    if (__DEV__) log.debug('Board reset complete for variation', { name: newVariation?.name });
   };
 
   const handleNextVariation = () => {
@@ -738,7 +750,7 @@ export default function TrainingScreen() {
       if (trainingMode.shouldShowExplanations()) {
         playCompletionSound(true); // Play a success sound
 
-        console.log('🔄 Learn mode completion - showing modal');
+        if (__DEV__) log.debug('Learn mode completion - showing modal');
 
         // Mark this variation as studied (Learn mode = always success since it's guided)
         if (opening?.variations?.length > 0) {
@@ -834,7 +846,7 @@ export default function TrainingScreen() {
               });
 
             if (createError) {
-              console.error('[Training] Error creating profile:', createError);
+              log.error('Error creating profile', createError);
               // Continue anyway, maybe it was created by another process
             }
           }
@@ -849,7 +861,7 @@ export default function TrainingScreen() {
               .single();
 
             if (profileError) {
-              console.error('[Training] Error fetching profile:', profileError);
+              log.error('Error fetching profile', profileError);
             } else {
               // Calculate new XP values
               const newTotalXP = (profile?.total_xp || 0) + xpToAward;
@@ -867,7 +879,7 @@ export default function TrainingScreen() {
                 .eq('id', user.id);
 
               if (updateError) {
-                console.error('[Training] Error updating profile:', updateError);
+                log.error('Error updating profile', updateError);
               } else {
                 // Optimistically update user profile in cache
                 updateUserProfile({
@@ -881,7 +893,7 @@ export default function TrainingScreen() {
               }
             }
           } else if (!trainingMode.shouldTrackXP()) {
-            console.log('[Training] Learn mode - XP not tracked');
+            if (__DEV__) log.debug('Learn mode - XP not tracked');
           }
 
           // Save variation completion to database (always, to record the attempt/practice)
@@ -900,14 +912,14 @@ export default function TrainingScreen() {
             });
 
           if (completionError) {
-            console.error('[Training] Error saving completion:', completionError);
+            log.error('Error saving completion', completionError);
           } else if (success) {
             // Update local state to show as completed
             setCompletedVariationIds(prev => new Set(prev).add(uniqueVariationId));
           }
 
         } catch (error) {
-          console.error('[Training] Error saving XP:', error);
+          log.error('Error saving XP', error);
         }
       }
 
@@ -920,9 +932,9 @@ export default function TrainingScreen() {
             errors,
             xpResult.totalXP
           );
-          console.log('[Training] Session ended:', trainingSessionId);
+          if (__DEV__) log.debug('Session ended', { trainingSessionId });
         } catch (error) {
-          console.error('[Training] Error ending session:', error);
+          log.error('Error ending session', error);
         }
       }
 
@@ -940,7 +952,7 @@ export default function TrainingScreen() {
           }, 500);
         }
       } catch (error) {
-        console.error('[Training] Error handling rating prompt:', error);
+        log.error('Error handling rating prompt', error);
       }
 
       // Mark processing as complete
@@ -992,12 +1004,14 @@ export default function TrainingScreen() {
     // Correct move: auto-play opponent response if available
     const oppSan = getOpponentResponse();
 
-    console.log('🎮 COMPLETION CHECK:', {
-      historyLength: engine.history().length,
-      totalExpectedMoves,
-      oppSan,
-      shouldComplete: engine.history().length >= totalExpectedMoves
-    });
+    if (__DEV__) {
+      log.debug('COMPLETION CHECK', {
+        historyLength: engine.history().length,
+        totalExpectedMoves,
+        oppSan,
+        shouldComplete: engine.history().length >= totalExpectedMoves,
+      });
+    }
 
     if (oppSan) {
       setTimeout(() => {
@@ -1007,29 +1021,31 @@ export default function TrainingScreen() {
           setTick((t) => t + 1);
           refreshCheckHighlight();
 
-          console.log('🎮 AFTER OPPONENT MOVE:', {
-            historyLength: engine.history().length,
-            totalExpectedMoves,
-            shouldComplete: engine.history().length >= totalExpectedMoves
-          });
+          if (__DEV__) {
+            log.debug('AFTER OPPONENT MOVE', {
+              historyLength: engine.history().length,
+              totalExpectedMoves,
+              shouldComplete: engine.history().length >= totalExpectedMoves,
+            });
+          }
 
           // After opponent move, check for completion
           if (engine.history().length >= totalExpectedMoves) {
-            console.log('✅ FINALIZING COMPLETION (after opponent)');
+            if (__DEV__) log.debug('FINALIZING COMPLETION (after opponent)');
             finalizeCompletion();
           } else {
             // In Learn mode, show the next hint
             showAutoHint();
           }
         } catch (err) {
-          console.error('❌ Error making opponent move:', err);
+          log.error('Error making opponent move', err);
         }
       }, 300);
     } else {
-      console.log('🎮 NO OPPONENT RESPONSE');
+      if (__DEV__) log.debug('NO OPPONENT RESPONSE');
       // No opponent reply expected; check completion now
       if (engine.history().length >= totalExpectedMoves) {
-        console.log('✅ FINALIZING COMPLETION (no opponent)');
+        if (__DEV__) log.debug('FINALIZING COMPLETION (no opponent)');
         finalizeCompletion();
       } else {
         // In Learn mode, show the next hint
@@ -1039,13 +1055,10 @@ export default function TrainingScreen() {
   };
 
   const onSquarePress = (sq: string) => {
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
-    console.log('🎯 SQUARE PRESSED:', sq);
     const piece = engine.getPiece(sq);
-    console.log('🎯 Piece at square:', piece);
-    console.log('🎯 Current selected:', selected);
-    console.log('🎯 Current legalTargets:', legalTargets);
-    console.log('🎯 Player color:', playerColor);
+    if (__DEV__) {
+      log.debug('SQUARE PRESSED', { sq, piece, selected, legalTargets, playerColor });
+    }
 
     if (selected) {
       // console.log('🔥 Already have selection:', selected);
@@ -1058,22 +1071,22 @@ export default function TrainingScreen() {
 
       // Validate that selected square still has a valid piece
       const selectedPiece = engine.getPiece(selected);
-      console.log('🎯 Validating selected piece at', selected, ':', selectedPiece);
+      if (__DEV__) log.debug('Validating selected piece', { selected, selectedPiece });
       if (!selectedPiece || selectedPiece.color !== playerColor) {
-        console.log('⚠️ STALE SELECTION! Clearing and reselecting');
+        if (__DEV__) log.debug('STALE SELECTION! Clearing and reselecting');
         // Selection is stale, clear it and start fresh
         setSelected(null);
         setLegalTargets([]);
         // Try selecting the clicked square instead
         if (piece && piece.color === playerColor) {
-          console.log('🎯 Selecting new piece at', sq);
+          if (__DEV__) log.debug('Selecting new piece', { sq });
           // Clear hint when selecting a piece
           if (hintTimeout.current) clearTimeout(hintTimeout.current);
           setHintSource(null);
           setHintTarget(null);
           setSelected(sq);
           const moves = engine.getLegalMoves(sq);
-          console.log('🎯 Legal moves for', sq, ':', moves.map((m: any) => m.to));
+          if (__DEV__) log.debug('Legal moves', { sq, moves: moves.map((m: any) => m.to) });
           setLegalTargets(moves.map((m: any) => m.to));
         }
         return;
@@ -1082,16 +1095,13 @@ export default function TrainingScreen() {
       // Try to move
       const legal = engine.getLegalMoves(selected);
       const legalSquares = legal.map((m: any) => m.to);
-      console.log('🎯 Legal moves from', selected, ':', legalSquares);
-
-      console.log('🎯 Checking if', sq, 'is in legalSquares:', legalSquares);
-      console.log('🎯 legalSquares.includes(', sq, '):', legalSquares.includes(sq));
+      if (__DEV__) log.debug('Legal moves from selected', { selected, legalSquares });
 
       if (legalSquares.includes(sq)) {
-        console.log('✅ LEGAL MOVE - Attempting move from', selected, 'to', sq);
+        if (__DEV__) log.debug('LEGAL MOVE - Attempting', { from: selected, to: sq });
         try {
           const move = engine.move({ from: selected, to: sq });
-          console.log('✅ Move successful:', move);
+          if (__DEV__) log.debug('Move successful', { move });
           setTick((t) => t + 1); // Update board immediately to show player's move
           const result = applyMove(move);
           if (result.ok) {
@@ -1100,48 +1110,46 @@ export default function TrainingScreen() {
           setSelected(null);
           setLegalTargets([]);
         } catch (err) {
-          console.error('❌ Move failed:', err);
+          log.error('Move failed', err);
         }
       } else {
-        console.log('❌ NOT A LEGAL TARGET:', sq, 'is not in', legalSquares);
-        console.log('🎯 Piece at target square:', piece);
+        if (__DEV__) log.debug('NOT A LEGAL TARGET', { sq, legalSquares, piece });
         // Select new piece - but ONLY if it's the player's piece
         if (piece && piece.color === playerColor) {
-          console.log('🎯 Selecting different piece at', sq);
+          if (__DEV__) log.debug('Selecting different piece', { sq });
           // Clear hint when selecting a piece
           if (hintTimeout.current) clearTimeout(hintTimeout.current);
           setHintSource(null);
           setHintTarget(null);
           setSelected(sq);
           const moves = engine.getLegalMoves(sq);
-          console.log('🎯 Legal moves for', sq, ':', moves.map((m: any) => m.to));
+          if (__DEV__) log.debug('Legal moves', { sq, moves: moves.map((m: any) => m.to) });
           setLegalTargets(moves.map((m: any) => m.to));
         } else {
-          console.log('🎯 Clearing selection (clicked empty or opponent piece)');
+          if (__DEV__) log.debug('Clearing selection (clicked empty or opponent piece)');
           setSelected(null);
           setLegalTargets([]);
         }
       }
     } else {
-      console.log('🎯 No previous selection');
+      if (__DEV__) log.debug('No previous selection');
       // First selection - ONLY allow player's pieces
       if (piece && piece.color === playerColor) {
-        console.log('🎯 First selection at', sq, 'piece:', piece);
+        if (__DEV__) log.debug('First selection', { sq, piece });
         // Clear hint when selecting a piece
         if (hintTimeout.current) clearTimeout(hintTimeout.current);
         setHintSource(null);
         setHintTarget(null);
         setSelected(sq);
         const moves = engine.getLegalMoves(sq);
-        console.log('🎯 Legal moves for', sq, ':', moves.map((m: any) => m.to));
+        if (__DEV__) log.debug('Legal moves', { sq, moves: moves.map((m: any) => m.to) });
         setLegalTargets(moves.map((m: any) => m.to));
       } else if (piece && piece.color !== playerColor) {
-        console.log('⛔ BLOCKED: Clicked opponent piece at', sq, '- not showing moves');
+        if (__DEV__) log.debug('BLOCKED: Clicked opponent piece', { sq });
       } else {
-        console.log('🎯 Clicked empty square, no selection');
+        if (__DEV__) log.debug('Clicked empty square, no selection');
       }
     }
-    console.log('━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━');
   };
 
   const onDropMove = (from: string, to: string) => {
@@ -1151,7 +1159,7 @@ export default function TrainingScreen() {
     // Validate that the piece being dragged belongs to the player
     const piece = engine.getPiece(from);
     if (!piece || piece.color !== playerColor) {
-      console.warn('[Training] Attempted to drag opponent piece or empty square');
+      log.warn('Attempted to drag opponent piece or empty square');
       return;
     }
 
@@ -1176,7 +1184,7 @@ export default function TrainingScreen() {
       setSelected(null);
       setLegalTargets([]);
     } catch (err) {
-      console.error('❌ Drop move failed:', err);
+      log.error('Drop move failed', err);
       playIllegalMoveSound();
       H.error();
     }
@@ -1185,7 +1193,7 @@ export default function TrainingScreen() {
   const handleHint = () => {
     // If hint is currently showing, hide it (toggle behavior)
     if (hintSource || hintTarget) {
-      console.log('💡 HINT: Toggling OFF - clearing hint highlights');
+      if (__DEV__) log.debug('HINT: Toggling OFF - clearing hint highlights');
       if (hintTimeout.current) clearTimeout(hintTimeout.current);
       setHintSource(null);
       setHintTarget(null);
@@ -1193,20 +1201,20 @@ export default function TrainingScreen() {
     }
 
     const expectedSan = getExpectedMove();
-    console.log('💡 HINT: Expected move SAN:', expectedSan);
+    if (__DEV__) log.debug('HINT: Expected move SAN', { expectedSan });
     if (!expectedSan) {
-      console.log('💡 HINT: No expected move found');
+      if (__DEV__) log.debug('HINT: No expected move found');
       return;
     }
 
     try {
       const allMoves = engine.moves({ verbose: true });
-      console.log('💡 HINT: All legal moves:', allMoves.map((m: any) => m.san));
+      if (__DEV__) log.debug('HINT: All legal moves', { moves: allMoves.map((m: any) => m.san) });
       const hintMove = allMoves.find((m: any) => m.san === expectedSan);
-      console.log('💡 HINT: Found hint move:', hintMove);
+      if (__DEV__) log.debug('HINT: Found hint move', { hintMove });
 
       if (hintMove) {
-        console.log('💡 HINT: Setting highlights - from:', hintMove.from, 'to:', hintMove.to);
+        if (__DEV__) log.debug('HINT: Setting highlights', { from: hintMove.from, to: hintMove.to });
         setHintsUsed((h) => h + 1);
         setHintSource(hintMove.from);
         setHintTarget(hintMove.to);
@@ -1215,15 +1223,15 @@ export default function TrainingScreen() {
         // Auto-clear hint after 3 seconds
         if (hintTimeout.current) clearTimeout(hintTimeout.current);
         hintTimeout.current = setTimeout(() => {
-          console.log('💡 HINT: Auto-clearing hint highlights after timeout');
+          if (__DEV__) log.debug('HINT: Auto-clearing hint highlights after timeout');
           setHintSource(null);
           setHintTarget(null);
         }, 3000);
       } else {
-        console.log('💡 HINT: Expected move not found in legal moves!');
+        if (__DEV__) log.debug('HINT: Expected move not found in legal moves!');
       }
     } catch (err) {
-      console.error('💡 HINT ERROR:', err);
+      log.error('HINT ERROR', err);
     }
   };
 

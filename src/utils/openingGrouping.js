@@ -4,6 +4,9 @@
  */
 
 import { getCategoryForOpening } from './openingCategories';
+import { createLogger } from './logger';
+
+const log = createLogger('OpeningGrouping');
 
 function getBaseName(opening) {
   // Remove level indicators like "lvl 1", "lvl 2", "level 3", etc.
@@ -53,11 +56,11 @@ function shouldFilterOut(opening) {
 export function groupOpenings(openings) {
   if (!Array.isArray(openings)) return [];
 
-  console.log(`📦 Grouping ${openings.length} openings...`);
+  log.debug('Grouping openings', { count: openings.length });
 
   // Step 1: Filter out unwanted openings
   const filtered = openings.filter(opening => !shouldFilterOut(opening));
-  console.log(`🔍 Filtered to ${filtered.length} openings (removed ${openings.length - filtered.length})`);
+  log.debug('Filtered openings', { remaining: filtered.length, removed: openings.length - filtered.length });
 
   // Step 2: Keep only highest version for each unique opening (including color/level)
   // Key format: "cleanBaseName|color|level" to compare versioned and non-versioned openings
@@ -72,7 +75,7 @@ export function groupOpenings(openings) {
     const key = `${cleanBaseName}|${color}|${level}`;
     const version = getVersion(opening);
 
-    console.log(`🔑 ${opening.name}: key="${key}", version=${version}`);
+    log.debug('Processing opening', { name: opening.name, key, version });
 
     if (!versionMap.has(key)) {
       versionMap.set(key, { version, opening });
@@ -80,7 +83,7 @@ export function groupOpenings(openings) {
       const existing = versionMap.get(key);
       // Keep the higher version
       if (version > existing.version) {
-        console.log(`   ⬆️ Replacing ${existing.opening.name} (v${existing.version}) with ${opening.name} (v${version})`);
+        log.debug('Replacing with newer version', { old: existing.opening.name, oldVersion: existing.version, new: opening.name, newVersion: version });
         versionMap.set(key, { version, opening });
       }
     }
@@ -88,7 +91,7 @@ export function groupOpenings(openings) {
 
   // Step 3: Use only the highest version openings for each color/level variant
   const latestVersionOpenings = Array.from(versionMap.values()).map(v => v.opening);
-  console.log(`📌 Kept ${latestVersionOpenings.length} latest version openings`);
+  log.debug('Kept latest version openings', { count: latestVersionOpenings.length });
 
   const groups = new Map();
 
@@ -127,9 +130,9 @@ export function groupOpenings(openings) {
 
     // Debug: Verify pgn is present
     if (!levelData.pgn) {
-      console.warn(`⚠️ Missing pgn for ${opening.name} (${color} L${level})`);
+      log.warn('Missing pgn', { name: opening.name, color, level });
     } else {
-      console.log(`✅ ${baseName} ${color} L${level}: pgn present (${levelData.pgn.substring(0, 30)}...)`);
+      log.debug('PGN present', { baseName, color, level });
     }
 
     // Organize by color and level
@@ -151,7 +154,7 @@ export function groupOpenings(openings) {
   }
 
   const grouped = Array.from(groups.values());
-  console.log(`📦 Grouped into ${grouped.length} opening groups`);
+  log.debug('Grouped into opening groups', { count: grouped.length });
 
   return grouped;
 }

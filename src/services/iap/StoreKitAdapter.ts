@@ -1,11 +1,14 @@
 // import * as InAppPurchases from 'expo-in-app-purchases';
 import { IAPAdapter, Product, Purchase } from './types';
+import { createLogger } from '../../utils/logger';
+
+const log = createLogger('StoreKit');
 
 let InAppPurchases: any;
 try {
     InAppPurchases = require('expo-in-app-purchases');
 } catch (error) {
-    console.warn('[StoreKitAdapter] expo-in-app-purchases not found. Using mock.');
+    log.warn(' expo-in-app-purchases not found. Using mock.');
     InAppPurchases = {
         connectAsync: async () => false,
         getProductsAsync: async () => ({ responseCode: 1, results: [] }),
@@ -25,14 +28,14 @@ export class StoreKitAdapter implements IAPAdapter {
 
             await InAppPurchases.connectAsync();
             this.initialized = true;
-            console.log('[StoreKit] Initialized successfully');
+            log.debug(' Initialized successfully');
             return true;
         } catch (error: any) {
             if (error.message?.includes('Already connected')) {
                 this.initialized = true;
                 return true;
             }
-            console.error('[StoreKit] Initialization failed:', error);
+            log.error(' Initialization failed:', error);
             return false;
         }
     }
@@ -47,7 +50,7 @@ export class StoreKitAdapter implements IAPAdapter {
 
             return results.map(this.mapIAPProductToProduct);
         } catch (error) {
-            console.error('[StoreKit] Error fetching products:', error);
+            log.error(' Error fetching products:', error);
             throw error;
         }
     }
@@ -100,7 +103,7 @@ export class StoreKitAdapter implements IAPAdapter {
             }
             return [];
         } catch (error) {
-            console.error('[StoreKit] Restore failed:', error);
+            log.error(' Restore failed:', error);
             throw error;
         }
     }
@@ -113,7 +116,7 @@ export class StoreKitAdapter implements IAPAdapter {
             }
             return false;
         } catch (error) {
-            console.error('[StoreKit] Get status failed:', error);
+            log.error(' Get status failed:', error);
             return false;
         }
     }

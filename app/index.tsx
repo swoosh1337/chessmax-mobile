@@ -5,6 +5,9 @@ import { useAuth } from '@/src/context/AuthContext';
 import { colors } from '@/src/theme/colors';
 import { onboardingStorage } from '@/src/utils/storage';
 import { supabase } from '@/src/lib/supabase';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('Index');
 
 /**
  * Root index route - handles auth flow navigation
@@ -96,11 +99,11 @@ export default function IndexScreen() {
                 });
               
               if (createError) {
-                console.error('[Index] Error creating profile:', createError);
+                log.error('Error creating profile', createError);
               }
             }
           } catch (error) {
-            console.error('[Index] Error checking profile status:', error);
+            log.error('Error checking profile status', error);
           }
         }
 
@@ -117,7 +120,7 @@ export default function IndexScreen() {
           router.replace(target);
         }
       } catch (error) {
-        console.error('[Index] Navigation error:', error);
+        log.error('Navigation error', error);
         // On error, go to auth as fallback
         const target = '/auth';
         navigationTarget.current = target;

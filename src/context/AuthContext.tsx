@@ -1,26 +1,44 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useState, ReactNode } from 'react';
 import { supabase } from '../lib/supabase';
 import { setAuth as setClientAuth } from '../api/apiClient';
 import { signOut as authSignOut } from '../utils/auth';
 import { signInWithGoogle } from '../lib/googleAuth';
 import { signInWithApple } from '../lib/appleAuth';
+import { createLogger } from '../utils/logger';
+import type { Session, User } from '@supabase/supabase-js';
 
-const AuthContext = createContext(null);
+const log = createLogger('AuthContext');
 
-export const AuthProvider = ({ children }) => {
-  const [session, setSession] = useState(null);
-  const [user, setUser] = useState(null);
+interface AuthContextType {
+  session: Session | null;
+  user: User | null;
+  loading: boolean;
+  signOut: () => Promise<void>;
+  signInWithGoogle: () => Promise<void>;
+  signInWithApple: () => Promise<void>;
+  isAuthenticated: boolean;
+}
+
+const AuthContext = createContext<AuthContextType | null>(null);
+
+interface AuthProviderProps {
+  children: ReactNode;
+}
+
+export const AuthProvider = ({ children }: AuthProviderProps) => {
+  const [session, setSession] = useState<Session | null>(null);
+  const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Initialize: Check for existing session
   useEffect(() => {
-    // console.log('[AuthContext] Initializing...');
+    log.debug('Initializing auth context');
 
     // Get initial session
     supabase.auth.getSession()
       .then(({ data: { session }, error }) => {
         if (error) {
-          console.warn('[AuthContext] Session error:', error.message);
+          log.warn('Session error', { message: error.message });
           // Clear invalid session
           setSession(null);
           setUser(null);
@@ -29,7 +47,7 @@ export const AuthProvider = ({ children }) => {
           return;
         }
 
-        // console.log('[AuthContext] Initial session:', session ? 'Found' : 'None');
+        log.debug('Initial session', { hasSession: !!session });
         setSession(session);
         setUser(session?.user ?? null);
         setLoading(false);
@@ -43,7 +61,7 @@ export const AuthProvider = ({ children }) => {
         }
       })
       .catch((error) => {
-        console.error('[AuthContext] Critical session error:', error);
+        log.error('Critical session error', error);
         // Clear invalid session on any error
         setSession(null);
         setUser(null);
@@ -52,12 +70,12 @@ export const AuthProvider = ({ children }) => {
       });
 
     // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      // console.log('[AuthContext] Auth state changed:', _event, session ? 'Session active' : 'No session');
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      log.debug('Auth state changed', { event, hasSession: !!session });
 
       // Handle token refresh errors
-      if (_event === 'TOKEN_REFRESHED' && !session) {
-        console.warn('[AuthContext] Token refresh failed, clearing session');
+      if (event === 'TOKEN_REFRESHED' && !session) {
+        log.warn('Token refresh failed, clearing session');
       }
 
       setSession(session);
@@ -79,26 +97,26 @@ export const AuthProvider = ({ children }) => {
 
   const handleGoogleSignIn = async () => {
     try {
-      // console.log('[AuthContext] Starting Google sign-in...');
+      log.debug('Starting Google sign-in');
       await signInWithGoogle();
     } catch (error) {
-      console.error('[AuthContext] Google sign-in failed:', error);
+      log.error('Google sign-in failed', error);
       throw error;
     }
   };
 
   const handleAppleSignIn = async () => {
     try {
-      // console.log('[AuthContext] Starting Apple sign-in...');
+      log.debug('Starting Apple sign-in');
       await signInWithApple();
     } catch (error) {
-      console.error('[AuthContext] Apple sign-in failed:', error);
+      log.error('Apple sign-in failed', error);
       throw error;
     }
   };
 
   const signOut = async () => {
-    // console.log('[AuthContext] Signing out...');
+    log.info('Signing out');
     await authSignOut();
     setSession(null);
     setUser(null);
@@ -121,11 +139,10 @@ export const AuthProvider = ({ children }) => {
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
-export const useAuth = () => {
+export const useAuth = (): AuthContextType => {
   const context = useContext(AuthContext);
   if (!context) {
     throw new Error('useAuth must be used within AuthProvider');
   }
   return context;
 };
-

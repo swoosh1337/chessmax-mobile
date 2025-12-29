@@ -3,6 +3,9 @@
  * Uses AsyncStorage for persistent caching with TTL
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createLogger } from './logger';
+
+const log = createLogger('OpeningsCache');
 
 const CACHE_PREFIX = '@openings_cache:';
 const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
@@ -23,9 +26,9 @@ export async function cacheOpening(openingId: string, data: any): Promise<void> 
             timestamp: Date.now(),
         };
         await AsyncStorage.setItem(`${CACHE_PREFIX}${openingId}`, JSON.stringify(entry));
-        console.log(`💾 Cached opening: ${openingId}`);
+        log.debug('Cached opening', { openingId });
     } catch (error) {
-        console.warn('[OpeningsCache] Failed to cache opening:', error);
+        log.warn('Failed to cache opening', { openingId, error });
     }
 }
 
@@ -41,15 +44,15 @@ export async function getCachedOpening(openingId: string): Promise<any | null> {
         const age = Date.now() - entry.timestamp;
 
         if (age > CACHE_TTL_MS) {
-            console.log(`⏰ Cache expired for: ${openingId}`);
+            log.debug('Cache expired', { openingId });
             await AsyncStorage.removeItem(`${CACHE_PREFIX}${openingId}`);
             return null;
         }
 
-        console.log(`✅ Cache hit for: ${openingId} (age: ${Math.round(age / 1000 / 60)}min)`);
+        log.debug('Cache hit', { openingId, ageMinutes: Math.round(age / 1000 / 60) });
         return entry.data;
     } catch (error) {
-        console.warn('[OpeningsCache] Failed to get cached opening:', error);
+        log.warn('Failed to get cached opening', { openingId, error });
         return null;
     }
 }
@@ -64,9 +67,9 @@ export async function cacheAllOpenings(openings: any[]): Promise<void> {
             timestamp: Date.now(),
         };
         await AsyncStorage.setItem(ALL_OPENINGS_KEY, JSON.stringify(entry));
-        console.log(`💾 Cached all ${openings.length} openings`);
+        log.debug('Cached all openings', { count: openings.length });
     } catch (error) {
-        console.warn('[OpeningsCache] Failed to cache all openings:', error);
+        log.warn('Failed to cache all openings', { error });
     }
 }
 
@@ -82,15 +85,15 @@ export async function getCachedAllOpenings(): Promise<any[] | null> {
         const age = Date.now() - entry.timestamp;
 
         if (age > CACHE_TTL_MS) {
-            console.log('⏰ All openings cache expired');
+            log.debug('All openings cache expired');
             await AsyncStorage.removeItem(ALL_OPENINGS_KEY);
             return null;
         }
 
-        console.log(`✅ All openings cache hit (age: ${Math.round(age / 1000 / 60)}min, ${entry.data.length} openings)`);
+        log.debug('All openings cache hit', { ageMinutes: Math.round(age / 1000 / 60), count: entry.data.length });
         return entry.data;
     } catch (error) {
-        console.warn('[OpeningsCache] Failed to get cached openings:', error);
+        log.warn('Failed to get cached openings', { error });
         return null;
     }
 }
@@ -103,9 +106,9 @@ export async function clearOpeningsCache(): Promise<void> {
         const keys = await AsyncStorage.getAllKeys();
         const cacheKeys = keys.filter(key => key.startsWith(CACHE_PREFIX) || key === ALL_OPENINGS_KEY);
         await AsyncStorage.multiRemove(cacheKeys);
-        console.log(`🗑️ Cleared ${cacheKeys.length} cached openings`);
+        log.info('Cleared cache', { count: cacheKeys.length });
     } catch (error) {
-        console.warn('[OpeningsCache] Failed to clear cache:', error);
+        log.warn('Failed to clear cache', { error });
     }
 }
 

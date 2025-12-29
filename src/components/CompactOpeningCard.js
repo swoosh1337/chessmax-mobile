@@ -2,6 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Image } from 'react-native';
 import { colors } from '../theme/colors';
 import { WEB_URL } from '../config';
+import { createLogger } from '../utils/logger';
+
+const log = createLogger('CompactOpeningCard');
 
 export default function CompactOpeningCard({ opening, onPress, onToggleFavorite, isFavorite, isLocked = false, isPremium = true, isInFirstThree = false }) {
   const whitelevels = opening?.whitelevels || {};
@@ -68,15 +71,17 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
   const currentVariations = levelData?.variations?.length || 0;
 
   // Debug logging
-  console.log(`📊 ${opening?.name}:`);
-  console.log(`   Selected: ${selectedColor} L${selectedLevel}`);
-  console.log(`   Current variations: ${currentVariations}`);
-  console.log(`   Level data exists:`, !!levelData);
-  console.log(`   Level data name:`, levelData?.name);
+  log.debug('Rendering card', {
+    name: opening?.name,
+    selectedColor,
+    selectedLevel,
+    currentVariations,
+    hasLevelData: !!levelData
+  });
 
   // Handle color selection
   const handleColorSelect = (color) => {
-    console.log(`🎨 Color selected: ${color} for ${opening?.name}`);
+    log.debug('Color selected', { color, opening: opening?.name });
     setSelectedColor(color);
     setImageKey(prev => prev + 1); // Force image reload
   };
@@ -103,7 +108,7 @@ export default function CompactOpeningCard({ opening, onPress, onToggleFavorite,
             }}
             style={[styles.boardImage, isCurrentLevelLocked && styles.boardImageLocked]}
             resizeMode="cover"
-            onError={(error) => console.error(`❌ Failed to load image for ${opening?.name}:`, error.nativeEvent)}
+            onError={(error) => log.error('Failed to load image', undefined, { opening: opening?.name, error: error.nativeEvent })}
           />
         ) : (
           <View style={[styles.placeholderBoard, isCurrentLevelLocked && styles.placeholderLocked]}>

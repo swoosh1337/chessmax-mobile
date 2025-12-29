@@ -7,6 +7,9 @@ import { Asset } from 'expo-asset';
 import { TouchableOpacity, Platform } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { colors } from '@/src/theme/colors';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('RootLayout');
 
 // Reanimated import removed - we use react-native Animated instead
 
@@ -30,7 +33,7 @@ export default function RootLayout() {
   useEffect(() => {
     async function loadResourcesAndDataAsync() {
       try {
-        console.log('📦 Preloading critical assets...');
+        log.debug('Preloading critical assets...');
         // Preload all critical images (auth + onboarding + paywall)
         await Asset.loadAsync([
           require('../assets/images/icon.png'),
@@ -42,9 +45,9 @@ export default function RootLayout() {
           require('../assets/mascot/turtle_sitting.png'),
           require('../assets/mascot/turtle_sleeping.png'),
         ]);
-        console.log('✅ Assets loaded successfully');
+        log.debug('Assets loaded successfully');
       } catch (e) {
-        console.warn('⚠️ Failed to load assets:', e);
+        log.warn('Failed to load assets', { error: e });
       } finally {
         // Tell the app to render and hide the splash screen
         setAppIsReady(true);
@@ -57,7 +60,7 @@ export default function RootLayout() {
   useEffect(() => {
     if (appIsReady) {
       // Hide the splash screen after assets are loaded
-      console.log('🚀 Hiding splash screen');
+      log.debug('Hiding splash screen');
       SplashScreen.hideAsync();
     }
   }, [appIsReady]);

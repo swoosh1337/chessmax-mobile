@@ -7,6 +7,9 @@ import { router } from 'expo-router';
 import { useSubscription } from '@/src/context/SubscriptionContext';
 import { useAuth } from '@/src/context/AuthContext';
 import { supabase } from '@/src/lib/supabase';
+import { createLogger } from '@/src/utils/logger';
+
+const log = createLogger('Paywall');
 
 export default function PaywallScreen() {
   const { user } = useAuth();
@@ -25,7 +28,7 @@ export default function PaywallScreen() {
           .eq('id', user.id);
 
         if (error) {
-          console.error('[Paywall] Error saving paywall status:', error);
+          log.error('Error saving paywall status', error);
           // If profile doesn't exist, create it
           if (error.code === 'PGRST116') {
             const { error: createError } = await supabase
@@ -39,16 +42,16 @@ export default function PaywallScreen() {
                 seen_onboarding: true, // They've seen onboarding to get here
                 paywall_seen: true,
               });
-            
+
             if (createError) {
-              console.error('[Paywall] Error creating profile:', createError);
+              log.error('Error creating profile', createError);
             }
           }
         }
       }
       router.replace('/(tabs)');
     } catch (error) {
-      console.error('[Paywall] Error saving paywall status:', error);
+      log.error('Error saving paywall status', error);
       router.replace('/(tabs)');
     }
   };
@@ -78,13 +81,13 @@ export default function PaywallScreen() {
         ? 'com.igrigolia.chessmaxmobile.yearly'
         : 'com.igrigolia.chessmaxmobile.weekly.trial';
 
-      console.log('[Paywall] Purchasing:', productId);
+      log.debug('Purchasing', { productId });
       await purchaseSubscription(productId);
 
       // On successful purchase, mark paywall as seen and continue
       await continueToApp();
     } catch (error: any) {
-      console.error('[Paywall] Purchase failed:', error);
+      log.error('Purchase failed', error);
 
       // Check if it's Expo Go error
       if (error.message?.includes('Expo Go')) {
@@ -95,7 +98,7 @@ export default function PaywallScreen() {
         );
       } else if (error.code === 'E_USER_CANCELLED') {
         // User cancelled - don't show error
-        console.log('[Paywall] User cancelled purchase');
+        log.debug('User cancelled purchase');
       } else if (error.message?.includes('timeout')) {
         // Purchase timeout - offer restore option
         Alert.alert(
@@ -142,7 +145,7 @@ export default function PaywallScreen() {
         [{ text: 'Continue', onPress: continueToApp }]
       );
     } catch (error: any) {
-      console.error('[Paywall] Restore failed:', error);
+      log.error('Restore failed', error);
 
       // Check if it's Expo Go error
       if (error.message?.includes('Expo Go')) {

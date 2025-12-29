@@ -1,5 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { createLogger } from './logger';
 
+const log = createLogger('OnboardingStorage');
 const ONBOARDING_KEY = '@chessmaxx:hasCompletedOnboarding';
 
 export const hasCompletedOnboarding = async () => {
@@ -7,7 +9,7 @@ export const hasCompletedOnboarding = async () => {
     const value = await AsyncStorage.getItem(ONBOARDING_KEY);
     return value === 'true';
   } catch (error) {
-    console.warn('Error checking onboarding status:', error);
+    log.warn('Error checking onboarding status', { error });
     return false;
   }
 };
@@ -17,7 +19,7 @@ export const markOnboardingComplete = async () => {
     await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
     return true;
   } catch (error) {
-    console.warn('Error marking onboarding complete:', error);
+    log.warn('Error marking onboarding complete', { error });
     return false;
   }
 };
@@ -27,7 +29,7 @@ export const resetOnboarding = async () => {
     await AsyncStorage.removeItem(ONBOARDING_KEY);
     return true;
   } catch (error) {
-    console.warn('Error resetting onboarding:', error);
+    log.warn('Error resetting onboarding', { error });
     return false;
   }
 };
