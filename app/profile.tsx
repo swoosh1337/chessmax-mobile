@@ -8,18 +8,18 @@ import { supabase } from '@/src/lib/supabase';
 import { useLeaderboard } from '@/src/context/LeaderboardContext';
 import { useSubscription } from '@/src/context/SubscriptionContext';
 import { useTraining } from '@/src/context/TrainingContext';
+import { useUserProfile } from '@/src/hooks/useUserProfile';
 import { formatXP, getLevelProgress } from '@/src/utils/xp';
 import TrainingCalendar from '@/src/components/TrainingCalendar';
 import TrainingStatistics from '@/src/components/TrainingStatistics';
 import ProfileStatsSkeleton from '@/src/components/ProfileStatsSkeleton';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { onboardingStorage, ratingStorage } from '@/src/utils/storage';
+import { ratingStorage } from '@/src/utils/storage';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import {
   scheduleDailyReminder,
   cancelDailyReminder,
   getReminderSettings,
-  checkNotificationPermissions
 } from '@/src/utils/notifications';
 import { createLogger } from '@/src/utils/logger';
 
@@ -28,112 +28,39 @@ const log = createLogger('Profile');
 export default function ProfileScreen() {
   const { user, signOut } = useAuth();
   const { data: leaderboardData, loading: loadingLeaderboard, refetch } = useLeaderboard();
-  const { isPremium, products, isLoading: loadingSubscription } = useSubscription();
-  const { streak, totalMinutes, isLoading: loadingTraining } = useTraining();
+  const { isPremium, isLoading: loadingSubscription } = useSubscription();
+  const { streak, isLoading: loadingTraining } = useTraining();
+
+  // Use the useUserProfile hook for profile management
+  const {
+    profile: hookProfile,
+    loading: loadingProfile,
+    setUsername: updateUsername,
+  } = useUserProfile(user?.id, { createIfMissing: true });
+
   const [deleting, setDeleting] = useState(false);
   const [username, setUsername] = useState('');
   const [editingUsername, setEditingUsername] = useState(false);
   const [savingUsername, setSavingUsername] = useState(false);
-  const [loadingProfile, setLoadingProfile] = useState(true);
   const [showStats, setShowStats] = useState<'calendar' | 'stats'>('calendar');
-  const [cachedProfile, setCachedProfile] = useState<any>(null);
 
   // Reminder settings state
   const [reminderEnabled, setReminderEnabled] = useState(false);
   const [reminderTime, setReminderTime] = useState(new Date());
   const [showTimePicker, setShowTimePicker] = useState(false);
 
-  // Get user profile from leaderboard data or cache
-  const userProfile = leaderboardData?.currentUser || cachedProfile;
+  // Get user profile from leaderboard data (has rank) or hook profile
+  const userProfile = leaderboardData?.currentUser || hookProfile;
 
   // Combined loading state
   const isLoadingStats = loadingProfile || loadingLeaderboard;
 
-  // Cache key for profile data
-  const PROFILE_CACHE_KEY = `@profile_cache_${user?.id}`;
-
-  // Load cached profile on mount
+  // Sync username from profile
   useEffect(() => {
-    if (user) {
-      loadCachedProfile();
-      loadUserProfile();
+    if (hookProfile?.username) {
+      setUsername(hookProfile.username);
     }
-  }, [user]);
-
-  // Cache leaderboard data when it updates
-  useEffect(() => {
-    if (leaderboardData?.currentUser && user) {
-      cacheProfile(leaderboardData.currentUser);
-    }
-  }, [leaderboardData?.currentUser, user]);
-
-  const loadCachedProfile = async () => {
-    if (!user) return;
-    try {
-      const cached = await AsyncStorage.getItem(PROFILE_CACHE_KEY);
-      if (cached) {
-        setCachedProfile(JSON.parse(cached));
-      }
-    } catch (error) {
-      log.error('Error loading cache', error);
-    }
-  };
-
-  const cacheProfile = async (profile: any) => {
-    if (!user) return;
-    try {
-      await AsyncStorage.setItem(PROFILE_CACHE_KEY, JSON.stringify(profile));
-      setCachedProfile(profile);
-    } catch (error) {
-      log.error('Error saving cache', error);
-    }
-  };
-
-  const loadUserProfile = async () => {
-    if (!user) return;
-
-    setLoadingProfile(true);
-    try {
-      const { data, error } = await supabase
-        .from('user_profiles')
-        .select('username, total_xp, weekly_xp, level')
-        .eq('id', user.id)
-        .single();
-
-      if (error) {
-        // Profile doesn't exist, create it
-        if (error.code === 'PGRST116') {
-          const { error: createError } = await supabase
-            .from('user_profiles')
-            .insert({
-              id: user.id,
-              username: null,
-              total_xp: 0,
-              weekly_xp: 0,
-              level: 1,
-              seen_onboarding: false,
-              paywall_seen: false,
-            });
-
-          if (createError) {
-            log.error('Error creating profile', createError);
-          } else {
-            // Profile created successfully, refetch leaderboard
-            refetch();
-          }
-        }
-        return;
-      }
-
-      if (data) {
-        setUsername(data.username || '');
-      }
-    } catch (error) {
-      log.error('Error loading profile', error);
-    } finally {
-      setLoadingProfile(false);
-    }
-  };
+  }, [hookProfile?.username]);
 
   const handleSaveUsername = async () => {
     if (!user) return;
@@ -146,19 +73,14 @@ export default function ProfileScreen() {
 
     setSavingUsername(true);
     try {
-      const { error } = await supabase
-        .from('user_profiles')
-        .update({ username })
-        .eq('id', user.id);
+      const result = await updateUsername(username);
 
-      if (error) {
-        if (error.code === '23505') {
-          // Unique constraint violation
+      if (!result.success) {
+        if (result.error?.includes('taken') || result.error?.includes('already')) {
           Alert.alert('Username Taken', 'This username is already taken. Please choose another one.');
         } else {
-          Alert.alert('Error', 'Failed to update username. Please try again.');
+          Alert.alert('Error', result.error || 'Failed to update username. Please try again.');
         }
-        log.error('Error updating username', error);
         return;
       }
 
@@ -392,7 +314,7 @@ export default function ProfileScreen() {
         {user ? (
           <View style={styles.section}>
             {/* XP and Level Stats */}
-            {isLoadingStats && !cachedProfile ? (
+            {isLoadingStats && !hookProfile ? (
               <ProfileStatsSkeleton />
             ) : userProfile ? (
               <>
@@ -555,7 +477,7 @@ export default function ProfileScreen() {
                       style={styles.usernameCancel}
                       onPress={() => {
                         setEditingUsername(false);
-                        loadUserProfile(); // Reset to original
+                        setUsername(hookProfile?.username || ''); // Reset to original
                       }}
                       disabled={savingUsername}
                     >

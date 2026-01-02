@@ -1,8 +1,8 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View, Image, Dimensions, Alert, Modal, Pressable } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
-import Svg, { Path as SvgPath, Defs, LinearGradient as SvgGradient, Stop } from 'react-native-svg';
+import Svg, { Path as SvgPath } from 'react-native-svg';
 import Animated, {
   useAnimatedStyle,
   withRepeat,
@@ -10,19 +10,12 @@ import Animated, {
   withTiming,
   withDelay,
   useSharedValue,
-  withSpring,
-  Easing,
-  interpolate,
-  runOnJS
 } from 'react-native-reanimated';
-import { chessApi } from '@/src/api/chessApi';
-import { colors } from '@/src/theme/colors';
 import { useSubscription } from '@/src/context/SubscriptionContext';
 import { useLeaderboard } from '@/src/context/LeaderboardContext';
 import { useTraining } from '@/src/context/TrainingContext';
-import { getCachedAllOpenings, cacheAllOpenings } from '@/src/utils/openingsCache';
+import { useOpenings } from '@/src/hooks/useOpenings';
 import { groupOpenings } from '@/src/utils/openingGrouping';
-import { Ionicons } from '@expo/vector-icons';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const VERTICAL_SPACING = 150;
@@ -43,22 +36,22 @@ const TIMING = {
 
 // Assets
 const ICONS = {
-  pawn: require('../../assets/new-icons/icon_pawn.png'),
-  pawnBlack: require('../../assets/new-icons/icon_pawn_black.png'),
-  knight: require('../../assets/new-icons/icon_knight.png'),
-  rook: require('../../assets/new-icons/icon_rook.png'),
-  queen: require('../../assets/new-icons/icon_queen.png'),
-  king: require('../../assets/new-icons/icon_king.png'),
-  chest: require('../../assets/new-icons/icon_chest.png'),
-  star: require('../../assets/new-icons/icon_star.png'),
-  flame: require('../../assets/new-icons/flame icon.png'),
-  locked: require('../../assets/new-icons/icon_pawn.png'),
+  pawn: require('../../assets/new-icons/icon_pawn.webp'),
+  pawnBlack: require('../../assets/new-icons/icon_pawn_black.webp'),
+  knight: require('../../assets/new-icons/icon_knight.webp'),
+  rook: require('../../assets/new-icons/icon_rook.webp'),
+  queen: require('../../assets/new-icons/icon_queen.webp'),
+  king: require('../../assets/new-icons/icon_king.webp'),
+  chest: require('../../assets/new-icons/icon_chest.webp'),
+  star: require('../../assets/new-icons/icon_star.webp'),
+  flame: require('../../assets/new-icons/flame icon.webp'),
+  locked: require('../../assets/new-icons/icon_pawn.webp'),
 };
 
 const MASCOTS = {
-  thinking: require('../../assets/mascot/turtle_thinking.png'),
-  playing: require('../../assets/mascot/turtle_playing_chess.png'),
-  sitting: require('../../assets/mascot/turtle_sitting.png'),
+  thinking: require('../../assets/mascot/turtle_thinking.webp'),
+  playing: require('../../assets/mascot/turtle_playing_chess.webp'),
+  sitting: require('../../assets/mascot/turtle_sitting.webp'),
 };
 
 // Theme Palette
@@ -114,8 +107,6 @@ interface PathNode {
   repertoireColor: 'white' | 'black' | 'both';
 }
 
-const AnimatedImage = Animated.createAnimatedComponent(Image);
-const AnimatedTouchableOpacity = Animated.createAnimatedComponent(TouchableOpacity);
 const AnimatedView = Animated.createAnimatedComponent(View);
 
 // Pulsing Node Component for Current Opening Animation
@@ -193,7 +184,7 @@ const ProgressRing = ({ level, status = 'locked', size = 114 }: { level: number,
 
 // SVG Arc Helper
 function polarToCartesian(centerX: number, centerY: number, radius: number, angleInDegrees: number) {
-  var angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
+  let angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
   return {
     x: centerX + (radius * Math.cos(angleInRadians)),
     y: centerY + (radius * Math.sin(angleInRadians))
@@ -201,10 +192,10 @@ function polarToCartesian(centerX: number, centerY: number, radius: number, angl
 }
 
 function describeArc(x: number, y: number, radius: number, startAngle: number, endAngle: number) {
-  var start = polarToCartesian(x, y, radius, endAngle);
-  var end = polarToCartesian(x, y, radius, startAngle);
-  var largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-  var d = [
+  let start = polarToCartesian(x, y, radius, endAngle);
+  let end = polarToCartesian(x, y, radius, startAngle);
+  let largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
+  let d = [
     "M", start.x, start.y,
     "A", radius, radius, 0, largeArcFlag, 0, end.x, end.y
   ].join(" ");
@@ -214,11 +205,12 @@ function describeArc(x: number, y: number, radius: number, startAngle: number, e
 export default function HomeScreen() {
   const { isPremium } = useSubscription();
   const { data: leaderboardData } = useLeaderboard();
-  const { streak, openingStats, refreshStats } = useTraining();
+  const { streak, openingStats } = useTraining();
 
-  const [openings, setOpenings] = useState<any[]>([]);
+  // Use the useOpenings hook for openings data management
+  const { openings: rawOpenings, loading } = useOpenings();
+
   const [pathNodes, setPathNodes] = useState<PathNode[]>([]);
-  const [loading, setLoading] = useState(true);
 
   // Chest reward state
   const [showXPReward, setShowXPReward] = useState(false);
@@ -238,29 +230,12 @@ export default function HomeScreen() {
     return 'black'; // Default to black if only black or unknown
   };
 
+  // Process openings when data changes
   useEffect(() => {
-    let mounted = true;
-    const load = async () => {
-      try {
-        const cached = await getCachedAllOpenings();
-        if (cached && mounted) processOpenings(cached);
-
-        const fetched = await chessApi.getOpenings();
-        if (!mounted) return;
-
-        if (Array.isArray(fetched)) {
-          processOpenings(fetched);
-          await cacheAllOpenings(fetched);
-        }
-      } catch (e) {
-        // Error handling
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-    load();
-    return () => { mounted = false; };
-  }, []);
+    if (rawOpenings.length > 0) {
+      processOpenings(rawOpenings);
+    }
+  }, [rawOpenings, openingStats]);
 
   const processOpenings = (data: any[]) => {
     const grouped = groupOpenings(data);
@@ -286,7 +261,6 @@ export default function HomeScreen() {
       return (a.name || '').localeCompare(b.name || '');
     });
 
-    setOpenings(sorted);
     buildPath(sorted);
   };
 

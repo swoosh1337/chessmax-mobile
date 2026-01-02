@@ -182,7 +182,7 @@ export default function PaywallScreen() {
     <SafeAreaView style={styles.container}>
       <View style={styles.sheet}>
         {/* Illustration */}
-        <Image source={require('../assets/mascot/turtle_playing_chess.png')} style={styles.hero} />
+        <Image source={require('../assets/mascot/turtle_playing_chess.webp')} style={styles.hero} />
 
         {/* Headline */}
         <Text style={styles.title}>Unlimited Access</Text>

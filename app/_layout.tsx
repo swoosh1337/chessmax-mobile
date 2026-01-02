@@ -37,13 +37,13 @@ export default function RootLayout() {
         // Preload all critical images (auth + onboarding + paywall)
         await Asset.loadAsync([
           require('../assets/images/icon.png'),
-          require('../assets/images/logo_transparent.png'),
+          require('../assets/images/logo_transparent.webp'),
           // Onboarding mascots
-          require('../assets/mascot/turtle_thinking.png'),
-          require('../assets/mascot/turtle_holding_board.png'),
-          require('../assets/mascot/turtle_playing_chess.png'),
-          require('../assets/mascot/turtle_sitting.png'),
-          require('../assets/mascot/turtle_sleeping.png'),
+          require('../assets/mascot/turtle_thinking.webp'),
+          require('../assets/mascot/turtle_holding_board.webp'),
+          require('../assets/mascot/turtle_playing_chess.webp'),
+          require('../assets/mascot/turtle_sitting.webp'),
+          require('../assets/mascot/turtle_sleeping.webp'),
         ]);
         log.debug('Assets loaded successfully');
       } catch (e) {

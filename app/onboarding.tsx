@@ -17,31 +17,31 @@ const slides: Array<{ key: SlideKey; title: string; text: string; mascot: any }>
     key: 'welcome',
     title: 'Welcome to ChessMaxx',
     text: 'Master openings with guided move-by-move drills.',
-    mascot: require('../assets/mascot/turtle_thinking.png'),
+    mascot: require('../assets/mascot/turtle_thinking.webp'),
   },
   {
     key: 'precision',
     title: 'Train With Precision',
     text: 'Learn the exact line and get instant feedback.',
-    mascot: require('../assets/mascot/turtle_holding_board.png'),
+    mascot: require('../assets/mascot/turtle_holding_board.webp'),
   },
   {
     key: 'progress',
     title: 'Track Your Progress',
     text: 'Earn XP, perfect variations, and level up.',
-    mascot: require('../assets/mascot/turtle_playing_chess.png'),
+    mascot: require('../assets/mascot/turtle_playing_chess.webp'),
   },
   {
     key: 'leaderboard',
     title: 'Compete on Leaderboards',
     text: 'Climb ranks by completing variations flawlessly.',
-    mascot: require('../assets/mascot/turtle_sitting.png'),
+    mascot: require('../assets/mascot/turtle_sitting.webp'),
   },
   {
     key: 'done',
     title: "You're All Set!",
-    text: 'Let’s get started and improve your chess.',
-    mascot: require('../assets/mascot/turtle_sleeping.png'),
+    text: "Let's get started and improve your chess.",
+    mascot: require('../assets/mascot/turtle_sleeping.webp'),
   },
 ];
 
@@ -244,7 +244,7 @@ function renderCenter(key: SlideKey, isTablet: boolean) {
     case 'welcome':
       return (
         <Image
-          source={require('../assets/images/logo_transparent.png')}
+          source={require('../assets/images/logo_transparent.webp')}
           style={[styles.mascotHero, isTablet && { width: 200, height: 200 }]}
         />
       );
