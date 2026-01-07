@@ -100,12 +100,14 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modalContent: {
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.card,
     borderRadius: 16,
     padding: 20,
     width: '100%',
     maxWidth: 400,
     maxHeight: '80%',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   modalTitle: {
     color: colors.foreground,

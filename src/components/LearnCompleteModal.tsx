@@ -73,12 +73,14 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   modal: {
-    backgroundColor: colors.cardBackground,
+    backgroundColor: colors.card,
     borderRadius: 20,
     padding: 28,
     width: '100%',
     maxWidth: 340,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   emoji: {
     fontSize: 48,

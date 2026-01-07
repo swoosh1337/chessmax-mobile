@@ -78,7 +78,7 @@ const ProgressRing = ({ level, size = 114 }: { level: number; size?: number }) =
   const segmentAngle = 360 / 3;
 
   return (
-    <Svg width={size} height={size} style={{ position: 'absolute', transform: [{ rotate: '-90deg' }] }}>
+    <Svg width={size} height={size} style={styles.progressRingSvg}>
       {[0, 1, 2].map(i => (
         <SvgPath key={`bg-${i}`} d={describeArc(size / 2, size / 2, radius, i * segmentAngle + gap / 2, (i + 1) * segmentAngle - gap / 2)} stroke={THEME.ringEmpty} strokeWidth={strokeWidth} strokeLinecap="round" fill="none" />
       ))}
@@ -306,6 +306,7 @@ const styles = StyleSheet.create({
   speechBubble: { backgroundColor: '#FFF', paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, marginBottom: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.2, shadowRadius: 4 },
   speechText: { fontSize: 12, fontWeight: '800', color: '#000' },
   ringContainer: { position: 'absolute', width: 114, height: 114, zIndex: 0, left: 3, top: 7 },
+  progressRingSvg: { position: 'absolute', transform: [{ rotate: '-90deg' }] },
   dotContainer: { position: 'absolute', bottom: 8, flexDirection: 'row', gap: 4 },
   repDot: { width: 6, height: 6, borderRadius: 3 },
   chestContainer: { position: 'absolute', width: 80, height: 80, marginLeft: -40, marginTop: -40, alignItems: 'center', justifyContent: 'center', zIndex: 5 },

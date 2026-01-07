@@ -119,9 +119,24 @@ export default function TrainingScreen() {
   // Refs
   const trainingCompleteRef = useRef(false);
   const completionProcessingRef = useRef(false);
-  const captureTimeout = useRef<any>(null);
-  const hintTimeout = useRef<any>(null);
-  const wrongMoveTimeout = useRef<any>(null);
+  const captureTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hintTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const wrongMoveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const opponentMoveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ratingModalTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const autoHintTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Cleanup all timeouts on unmount
+  useEffect(() => {
+    return () => {
+      if (captureTimeout.current) clearTimeout(captureTimeout.current);
+      if (hintTimeout.current) clearTimeout(hintTimeout.current);
+      if (wrongMoveTimeout.current) clearTimeout(wrongMoveTimeout.current);
+      if (opponentMoveTimeout.current) clearTimeout(opponentMoveTimeout.current);
+      if (ratingModalTimeout.current) clearTimeout(ratingModalTimeout.current);
+      if (autoHintTimeout.current) clearTimeout(autoHintTimeout.current);
+    };
+  }, []);
 
   // Derived values
   const opening = currentOpening;
@@ -293,7 +308,10 @@ export default function TrainingScreen() {
     try {
       const variationsCompleted = await ratingStorage.incrementVariationsCompleted();
       const shouldShowRating = await ratingStorage.shouldShowRatingPrompt();
-      if (shouldShowRating) setTimeout(() => setRatingModalOpen(true), 500);
+      if (shouldShowRating) {
+        if (ratingModalTimeout.current) clearTimeout(ratingModalTimeout.current);
+        ratingModalTimeout.current = setTimeout(() => setRatingModalOpen(true), 500);
+      }
     } catch (error) {
       log.error('Error handling rating prompt', error);
     }
@@ -335,7 +353,8 @@ export default function TrainingScreen() {
 
     const oppSan = getOpponentResponse();
     if (oppSan) {
-      setTimeout(() => {
+      if (opponentMoveTimeout.current) clearTimeout(opponentMoveTimeout.current);
+      opponentMoveTimeout.current = setTimeout(() => {
         try {
           const oppMove = engine.move(oppSan);
           applyMove(oppMove);
@@ -371,11 +390,14 @@ export default function TrainingScreen() {
     setMoveHistory([]);
     setShowUndoButton(false);
     setEarnedXP(0);
-    if (trainingMode.shouldShowExplanations()) setTimeout(showAutoHint, 200);
+    if (trainingMode.shouldShowExplanations()) {
+      if (autoHintTimeout.current) clearTimeout(autoHintTimeout.current);
+      autoHintTimeout.current = setTimeout(showAutoHint, 200);
+    }
   }, [initPositionForOrientation, clearHints, trainingMode, showAutoHint]);
 
   // On variation/orientation change
-  useEffect(() => { reset(); }, [orientation, opening?.pgn]);
+  useEffect(() => { reset(); }, [orientation, opening?.pgn, reset]);
 
   // Auto-hint in Learn mode
   useEffect(() => {
@@ -498,7 +520,7 @@ export default function TrainingScreen() {
           <Text style={styles.backIcon}>←</Text>
         </TouchableOpacity>
         <Text style={styles.title}>{cleanOpeningName(opening?.name || 'Training')}</Text>
-        <View style={{ width: 40 }} />
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* Progress Bar */}
@@ -562,6 +584,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   centerContent: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 20 },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 16 },
+  headerSpacer: { width: 40 },
   backButton: { padding: 8 },
   backIcon: { fontSize: 28, color: colors.foreground, fontWeight: '600' },
   title: { fontSize: 18, fontWeight: '700', color: colors.foreground, flex: 1, textAlign: 'center' },
