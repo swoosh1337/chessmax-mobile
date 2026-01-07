@@ -1,26 +1,23 @@
 import React, { useState, useEffect } from 'react';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, TextInput, ActivityIndicator, Switch, Platform, Linking } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, Alert, ScrollView, TextInput, ActivityIndicator } from 'react-native';
 import { colors } from '@/src/theme/colors';
 import { useAuth } from '@/src/context/AuthContext';
 import { router } from 'expo-router';
-import { supabase } from '@/src/lib/supabase';
 import { useLeaderboard } from '@/src/context/LeaderboardContext';
+import { deleteUserAccount } from '@/src/services/supabase/userService';
 import { useSubscription } from '@/src/context/SubscriptionContext';
 import { useTraining } from '@/src/context/TrainingContext';
 import { useUserProfile } from '@/src/hooks/useUserProfile';
+import { useReminderSettings } from '@/src/hooks/useReminderSettings';
 import { formatXP, getLevelProgress } from '@/src/utils/xp';
 import TrainingCalendar from '@/src/components/TrainingCalendar';
 import TrainingStatistics from '@/src/components/TrainingStatistics';
 import ProfileStatsSkeleton from '@/src/components/ProfileStatsSkeleton';
+import SubscriptionCard from '@/src/components/SubscriptionCard';
+import DailyReminderCard from '@/src/components/DailyReminderCard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ratingStorage } from '@/src/utils/storage';
-import DateTimePicker from '@react-native-community/datetimepicker';
-import {
-  scheduleDailyReminder,
-  cancelDailyReminder,
-  getReminderSettings,
-} from '@/src/utils/notifications';
 import { createLogger } from '@/src/utils/logger';
 
 const log = createLogger('Profile');
@@ -29,7 +26,14 @@ export default function ProfileScreen() {
   const { user, signOut } = useAuth();
   const { data: leaderboardData, loading: loadingLeaderboard, refetch } = useLeaderboard();
   const { isPremium, isLoading: loadingSubscription } = useSubscription();
-  const { streak, isLoading: loadingTraining } = useTraining();
+  const {
+    streak,
+    dailyStats,
+    variationStats,
+    openingStats,
+    totalMinutes,
+    isLoading: loadingTraining,
+  } = useTraining();
 
   // Use the useUserProfile hook for profile management
   const {
@@ -38,16 +42,14 @@ export default function ProfileScreen() {
     setUsername: updateUsername,
   } = useUserProfile(user?.id, { createIfMissing: true });
 
+  // Use the useReminderSettings hook for daily reminders
+  const reminderSettings = useReminderSettings();
+
   const [deleting, setDeleting] = useState(false);
   const [username, setUsername] = useState('');
   const [editingUsername, setEditingUsername] = useState(false);
   const [savingUsername, setSavingUsername] = useState(false);
   const [showStats, setShowStats] = useState<'calendar' | 'stats'>('calendar');
-
-  // Reminder settings state
-  const [reminderEnabled, setReminderEnabled] = useState(false);
-  const [reminderTime, setReminderTime] = useState(new Date());
-  const [showTimePicker, setShowTimePicker] = useState(false);
 
   // Get user profile from leaderboard data (has rank) or hook profile
   const userProfile = leaderboardData?.currentUser || hookProfile;
@@ -94,117 +96,6 @@ export default function ProfileScreen() {
       Alert.alert('Error', 'Failed to update username. Please try again.');
     } finally {
       setSavingUsername(false);
-    }
-  };
-
-  // Load reminder settings on mount
-  useEffect(() => {
-    loadReminderSettings();
-  }, []);
-
-  const loadReminderSettings = async () => {
-    try {
-      const settings = await getReminderSettings();
-      if (settings) {
-        setReminderEnabled(settings.enabled);
-        // Set time based on saved hour and minute
-        const time = new Date();
-        time.setHours(settings.hour);
-        time.setMinutes(settings.minute);
-        setReminderTime(time);
-      }
-    } catch (error) {
-      log.error('Error loading reminder settings', error);
-    }
-  };
-
-  const handleReminderToggle = async (value: boolean) => {
-    try {
-      if (value) {
-        // Enabling reminder - request permissions
-        const { requestNotificationPermissions } = await import('@/src/utils/notifications');
-        const hasPermission = await requestNotificationPermissions();
-
-        if (!hasPermission) {
-          Alert.alert(
-            'Notification Permission Required',
-            'ChessMaxx needs permission to send you training reminders. Please enable notifications in Settings.',
-            [
-              { text: 'Cancel', style: 'cancel' },
-              {
-                text: 'Open Settings',
-                onPress: () => {
-                  Linking.openSettings();
-                }
-              }
-            ]
-          );
-          return;
-        }
-
-        // Show time picker
-        setShowTimePicker(true);
-      } else {
-        // Disabling reminder
-        await cancelDailyReminder();
-        setReminderEnabled(false);
-        Alert.alert('Success', 'Daily reminder has been turned off.');
-      }
-    } catch (error: any) {
-      log.error('Error toggling reminder', error);
-      Alert.alert('Error', error.message || 'Failed to update reminder settings.');
-    }
-  };
-
-  const handleTimeChange = (event: any, selectedDate?: Date) => {
-    // On Android, the picker closes after selection and we schedule immediately
-    if (Platform.OS === 'android') {
-      setShowTimePicker(false);
-      if (event.type === 'dismissed') {
-        return;
-      }
-      if (selectedDate) {
-        handleConfirmTime(selectedDate);
-      }
-      return;
-    }
-
-    // On iOS, just update the time state while scrolling
-    if (event.type === 'dismissed') {
-      setShowTimePicker(false);
-      return;
-    }
-
-    if (selectedDate) {
-      setReminderTime(selectedDate);
-    }
-  };
-
-  const handleConfirmTime = async (timeToSet?: Date) => {
-    const selectedDate = timeToSet || reminderTime;
-
-    try {
-      const hour = selectedDate.getHours();
-      const minute = selectedDate.getMinutes();
-
-      await scheduleDailyReminder(hour, minute);
-      setReminderEnabled(true);
-      setShowTimePicker(false);
-
-      // Format time for display
-      const timeString = selectedDate.toLocaleTimeString('en-US', {
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true
-      });
-
-      Alert.alert(
-        'Success',
-        `Daily training reminder set for ${timeString}. You'll receive a notification every day at this time.`
-      );
-    } catch (error: any) {
-      log.error('Error scheduling reminder', error);
-      Alert.alert('Error', error.message || 'Failed to set reminder.');
     }
   };
 
@@ -257,23 +148,17 @@ export default function ProfileScreen() {
           onPress: async () => {
             setDeleting(true);
             try {
-              // IMPORTANT: Delete account FIRST while still authenticated
-              // The SQL function requires authentication to work
-              const { error } = await supabase.rpc('delete_user_account');
+              const { error } = await deleteUserAccount();
 
               if (error) {
                 throw error;
               }
 
-              // After successful deletion, clear local storage (rating data, etc.)
-              // Note: onboarding status is stored in Supabase and will be deleted with the account
-              // so we don't need to clear it separately
+              // Clear local storage
               try {
                 await ratingStorage.resetRatingData();
-                // Clear all AsyncStorage data for this app (comprehensive cleanup)
                 await AsyncStorage.clear();
               } catch (storageError) {
-                // Log but don't fail - account is already deleted
                 log.warn('Error clearing local storage', { error: storageError });
               }
 
@@ -335,7 +220,7 @@ export default function ProfileScreen() {
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
-                    <Text style={styles.statValue}>🔥 {loadingTraining ? '-' : streak}</Text>
+                    <Text style={styles.statValue}>{loadingTraining ? '-' : streak}</Text>
                     <Text style={styles.statLabel}>Day Streak</Text>
                   </View>
                 </View>
@@ -360,66 +245,14 @@ export default function ProfileScreen() {
                 )}
 
                 {/* Subscription Status Card */}
-                <View style={[styles.subscriptionCard, isPremium && styles.subscriptionCardPremium]}>
-                  <View style={styles.subscriptionHeader}>
-                    <Text style={styles.subscriptionTitle}>
-                      {isPremium ? '⭐ Premium Member' : '🎯 Free Account'}
-                    </Text>
-                    {isPremium && (
-                      <View style={styles.premiumBadge}>
-                        <Text style={styles.premiumBadgeText}>ACTIVE</Text>
-                      </View>
-                    )}
-                  </View>
-
-                  {loadingSubscription ? (
-                    <ActivityIndicator size="small" color={colors.textSubtle} style={{ marginTop: 8 }} />
-                  ) : (
-                    <>
-                      <Text style={styles.subscriptionDescription}>
-                        {isPremium
-                          ? 'You have unlimited access to all openings and variations!'
-                          : 'Upgrade to unlock all openings and variations.'}
-                      </Text>
-
-                      {!isPremium && (
-                        <TouchableOpacity
-                          style={styles.upgradeButton}
-                          onPress={() => router.push('/paywall')}
-                        >
-                          <Text style={styles.upgradeButtonText}>Upgrade to Premium</Text>
-                        </TouchableOpacity>
-                      )}
-
-                      {isPremium && (
-                        <View style={styles.subscriptionDetails}>
-                          <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Status</Text>
-                            <Text style={styles.detailValue}>Subscribed</Text>
-                          </View>
-                          <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Access</Text>
-                            <Text style={styles.detailValue}>All Content</Text>
-                          </View>
-                        </View>
-                      )}
-
-                      {!isPremium && (
-                        <View style={styles.subscriptionDetails}>
-                          <View style={styles.detailRow}>
-                            <Text style={styles.detailLabel}>Access</Text>
-                            <Text style={styles.detailValue}>First 3 openings (all levels)</Text>
-                          </View>
-                        </View>
-                      )}
-                    </>
-                  )}
-                </View>
+                <SubscriptionCard
+                  isPremium={isPremium}
+                  loadingSubscription={loadingSubscription}
+                />
               </>
             ) : null}
 
-            {/* Training Stats Tabs - Always show, even when userProfile is loading */}
-            {/* The TrainingStatistics component handles its own loading state */}
+            {/* Training Stats Tabs */}
             <View style={styles.statsTabsContainer}>
               <View style={styles.statsTabs}>
                 <TouchableOpacity
@@ -443,9 +276,13 @@ export default function ProfileScreen() {
               {/* Tab Content */}
               <View style={styles.statsContent}>
                 {showStats === 'calendar' ? (
-                  <TrainingCalendar />
+                  <TrainingCalendar dailyStats={dailyStats} />
                 ) : (
-                  <TrainingStatistics />
+                  <TrainingStatistics
+                    variationStats={variationStats}
+                    openingStats={openingStats}
+                    totalMinutes={totalMinutes}
+                  />
                 )}
               </View>
             </View>
@@ -477,7 +314,7 @@ export default function ProfileScreen() {
                       style={styles.usernameCancel}
                       onPress={() => {
                         setEditingUsername(false);
-                        setUsername(hookProfile?.username || ''); // Reset to original
+                        setUsername(hookProfile?.username || '');
                       }}
                       disabled={savingUsername}
                     >
@@ -515,58 +352,8 @@ export default function ProfileScreen() {
               <Text style={styles.value}>{providerDisplay}</Text>
             </View>
 
-
-
             {/* Daily Training Reminder */}
-            <View style={styles.reminderCard}>
-              <View style={styles.reminderHeader}>
-                <View style={styles.reminderTitleContainer}>
-                  <Text style={styles.reminderTitle}>🔔 Daily Training Reminder</Text>
-                  <Text style={styles.reminderSubtitle}>
-                    {reminderEnabled
-                      ? `Set for ${reminderTime.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })}`
-                      : 'Stay consistent with daily practice'}
-                  </Text>
-                </View>
-                <Switch
-                  value={reminderEnabled}
-                  onValueChange={handleReminderToggle}
-                  trackColor={{ false: colors.border, true: colors.primary }}
-                  thumbColor={reminderEnabled ? colors.background : colors.textSubtle}
-                  ios_backgroundColor={colors.border}
-                />
-              </View>
-
-              {reminderEnabled && (
-                <TouchableOpacity
-                  style={styles.changeTimeButton}
-                  onPress={() => setShowTimePicker(true)}
-                >
-                  <Text style={styles.changeTimeText}>Change Time</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* Time Picker */}
-              {showTimePicker && (
-                <View style={styles.timePickerContainer}>
-                  <DateTimePicker
-                    value={reminderTime}
-                    mode="time"
-                    is24Hour={false}
-                    display={Platform.OS === 'ios' ? 'spinner' : 'default'}
-                    onChange={handleTimeChange}
-                  />
-                  {Platform.OS === 'ios' && (
-                    <TouchableOpacity
-                      style={styles.doneButton}
-                      onPress={() => handleConfirmTime()}
-                    >
-                      <Text style={styles.doneButtonText}>Done</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-              )}
-            </View>
+            <DailyReminderCard reminderSettings={reminderSettings} />
           </View>
         ) : (
           <View style={styles.section}>
@@ -596,7 +383,6 @@ export default function ProfileScreen() {
           </View>
         ) : (
           <View style={styles.actions}>
-            {/* Guest users: Only show Sign In button */}
             <TouchableOpacity
               style={styles.btnSignIn}
               onPress={() => router.push('/auth')}
@@ -694,80 +480,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.primary,
     borderRadius: 4,
   },
-  subscriptionCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  subscriptionCardPremium: {
-    borderColor: colors.primary,
-    borderWidth: 2,
-  },
-  subscriptionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  subscriptionTitle: {
-    color: colors.foreground,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  premiumBadge: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  premiumBadgeText: {
-    color: colors.background,
-    fontSize: 10,
-    fontWeight: '800',
-  },
-  subscriptionDescription: {
-    color: colors.textSubtle,
-    fontSize: 14,
-    marginBottom: 12,
-    lineHeight: 20,
-  },
-  upgradeButton: {
-    backgroundColor: colors.primary,
-    paddingVertical: 12,
-    borderRadius: 8,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  upgradeButtonText: {
-    color: colors.background,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  subscriptionDetails: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: colors.border,
-  },
-  detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 8,
-  },
-  detailLabel: {
-    color: colors.textSubtle,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  detailValue: {
-    color: colors.foreground,
-    fontSize: 13,
-    fontWeight: '600',
-  },
   usernameHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -824,7 +536,6 @@ const styles = StyleSheet.create({
   },
   label: { color: colors.textSubtle, fontSize: 12, fontWeight: '600', marginBottom: 6 },
   value: { color: colors.foreground, fontSize: 16, fontWeight: '600' },
-  valueSmall: { color: colors.foreground, fontSize: 12, fontFamily: 'monospace' },
   actions: { marginTop: 20 },
   btnSignOut: {
     backgroundColor: '#333',
@@ -845,15 +556,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   btnDeleteText: { color: '#dc2626', fontWeight: '700', fontSize: 16 },
-  btnGetPremium: {
-    backgroundColor: colors.primary,
-    height: 56,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-  },
-  btnGetPremiumText: { color: colors.background, fontWeight: '700', fontSize: 16 },
   btnSignIn: {
     backgroundColor: colors.card,
     borderWidth: 1,
@@ -894,74 +596,4 @@ const styles = StyleSheet.create({
   statsContent: {
     minHeight: 400,
   },
-  loadingText: {
-    color: colors.textSubtle,
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: 12,
-  },
-  reminderCard: {
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 12,
-  },
-  reminderHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-  },
-  reminderTitleContainer: {
-    flex: 1,
-    marginRight: 12,
-  },
-  reminderTitle: {
-    color: colors.foreground,
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: 4,
-  },
-  reminderSubtitle: {
-    color: colors.textSubtle,
-    fontSize: 13,
-    fontWeight: '500',
-  },
-  changeTimeButton: {
-    marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    backgroundColor: colors.background,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: colors.border,
-    alignItems: 'center',
-  },
-  changeTimeText: {
-    color: colors.primary,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  timePickerContainer: {
-    marginTop: 12,
-    backgroundColor: colors.background,
-    borderRadius: 12,
-    padding: 12,
-    alignItems: 'center',
-  },
-  doneButton: {
-    marginTop: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 24,
-    backgroundColor: colors.primary,
-    borderRadius: 8,
-    alignItems: 'center',
-  },
-  doneButtonText: {
-    color: colors.background,
-    fontSize: 16,
-    fontWeight: '700',
-  },
 });
-

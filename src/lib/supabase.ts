@@ -1,8 +1,8 @@
 import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState, AppStateStatus } from 'react-native';
 import { createLogger } from '../utils/logger';
+import { secureStorage, migrateAuthToSecureStorage } from './secureStorage';
 
 const log = createLogger('Supabase');
 
@@ -13,9 +13,12 @@ if (!supabaseUrl || !supabaseAnonKey) {
   log.warn('Missing Supabase credentials. Please set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in your .env file');
 }
 
+// Migrate existing auth data from AsyncStorage to SecureStore (one-time migration)
+migrateAuthToSecureStorage();
+
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: AsyncStorage,
+    storage: secureStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,

@@ -83,6 +83,36 @@ export async function getSuccessfullyCompletedVariations(
 }
 
 /**
+ * Get successfully completed variation IDs for a specific opening
+ * Returns variations where user completed with no errors
+ */
+export async function getCompletedVariationsByOpening(
+  userId: string,
+  openingId: string
+): Promise<ServiceResult<string[]>> {
+  try {
+    const { data, error } = await supabase
+      .from('variation_completions')
+      .select('variation_id')
+      .eq('user_id', userId)
+      .eq('errors', 0)
+      .ilike('variation_id', `${openingId}::%`);
+
+    if (error) {
+      log.error('Error fetching completed variations by opening', error);
+      return { data: null, error: new Error(error.message) };
+    }
+
+    // Extract unique variation IDs
+    const variationIds = [...new Set(data?.map((d) => d.variation_id) || [])];
+    return { data: variationIds, error: null };
+  } catch (error) {
+    log.error('Error in getCompletedVariationsByOpening', error);
+    return { data: null, error: error as Error };
+  }
+}
+
+/**
  * Record a variation completion
  */
 export async function recordCompletion(

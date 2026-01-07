@@ -39,6 +39,7 @@
     "expo-linking": "~8.0.8",
     "expo-notifications": "~0.32.13",
     "expo-router": "~6.0.14",
+    "expo-secure-store": "~15.0.8",
     "expo-splash-screen": "~31.0.10",
     "expo-status-bar": "~3.0.8",
     "expo-store-review": "~9.0.5",

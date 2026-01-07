@@ -1,16 +1,76 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
-import { useTraining } from '../context/TrainingContext';
 
-export default function TrainingStatistics() {
-  const { variationStats, openingStats, totalMinutes } = useTraining();
+/**
+ * Variation statistics data
+ */
+export interface VariationStatsData {
+  opening_name: string;
+  variation_name: string;
+  total_sessions: number;
+  completed_sessions: number;
+  total_mistakes: number;
+  average_duration: number;
+  best_score: number;
+}
+
+/**
+ * Opening statistics data (aggregated from variations)
+ */
+export interface OpeningStatsData {
+  opening_name: string;
+  variations_count: number;
+  total_sessions: number;
+  completed_sessions: number;
+  total_mistakes: number;
+  total_duration: number;
+  best_score: number;
+}
+
+/**
+ * Props for TrainingStatistics component
+ */
+export interface TrainingStatisticsProps {
+  /**
+   * Statistics for individual variations
+   */
+  variationStats: VariationStatsData[];
+  /**
+   * Aggregated statistics per opening
+   */
+  openingStats: OpeningStatsData[];
+  /**
+   * Total training time in minutes
+   */
+  totalMinutes: number;
+}
+
+/**
+ * TrainingStatistics - Displays training progress and statistics
+ *
+ * This component shows:
+ * - Overall stats (total minutes, unique openings, total sessions)
+ * - Per-opening progress with completion rates
+ * - Expandable variation details
+ *
+ * @example
+ * ```tsx
+ * <TrainingStatistics
+ *   variationStats={variationStats}
+ *   openingStats={openingStats}
+ *   totalMinutes={120}
+ * />
+ * ```
+ */
+export default function TrainingStatistics({
+  variationStats,
+  openingStats,
+  totalMinutes,
+}: TrainingStatisticsProps) {
   const [expandedOpening, setExpandedOpening] = useState<string | null>(null);
 
-  // OPTIMIZED: Use pre-aggregated opening stats from server (no client-side grouping needed)
-  const openingGroups = openingStats;
-
   // Calculate unique openings count
-  const uniqueOpenings = openingGroups.length;
+  const uniqueOpenings = openingStats.length;
 
   // Calculate completion rate
   const getCompletionRate = (completed: number, total: number) => {
@@ -51,14 +111,14 @@ export default function TrainingStatistics() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Openings Progress</Text>
 
-        {openingGroups.length === 0 ? (
+        {openingStats.length === 0 ? (
           <View style={styles.emptyState}>
             <Text style={styles.emptyText}>No training sessions yet</Text>
             <Text style={styles.emptySubtext}>Start practicing to see your stats!</Text>
           </View>
         ) : (
           <ScrollView style={styles.statsScroll} showsVerticalScrollIndicator={false}>
-            {openingGroups.map((opening, index) => {
+            {openingStats.map((opening, index) => {
               const completionRate = getCompletionRate(opening.completed_sessions, opening.total_sessions);
               const avgMistakes = opening.total_sessions > 0
                 ? (opening.total_mistakes / opening.total_sessions).toFixed(1)

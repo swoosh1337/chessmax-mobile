@@ -1,18 +1,62 @@
 import React, { useMemo } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Calendar } from 'react-native-calendars';
-import { useTraining } from '../context/TrainingContext';
 
-interface TrainingCalendarProps {
+/**
+ * Daily training statistics data
+ */
+export interface DailyStatsData {
+  training_date: string;
+  sessions_count: number;
+  total_duration_seconds: number;
+  total_mistakes: number;
+  completed_count: number;
+  openings_practiced: string[];
+}
+
+/**
+ * Props for TrainingCalendar component
+ */
+export interface TrainingCalendarProps {
+  /**
+   * Array of daily training statistics
+   */
+  dailyStats: DailyStatsData[];
+  /**
+   * Callback when a day is pressed
+   */
   onDayPress?: (date: string) => void;
 }
 
-export default function TrainingCalendar({ onDayPress }: TrainingCalendarProps) {
-  const { dailyStats } = useTraining();
-
+/**
+ * TrainingCalendar - Displays a calendar with training activity
+ *
+ * This component shows:
+ * - Calendar with color-coded training days
+ * - Color intensity based on training duration
+ * - Legend explaining the color coding
+ *
+ * @example
+ * ```tsx
+ * <TrainingCalendar
+ *   dailyStats={dailyStats}
+ *   onDayPress={(date) => console.log('Selected:', date)}
+ * />
+ * ```
+ */
+export default function TrainingCalendar({ dailyStats, onDayPress }: TrainingCalendarProps) {
   // Convert daily stats to calendar marked dates
   const markedDates = useMemo(() => {
-    const marked: any = {};
+    const marked: Record<string, {
+      marked?: boolean;
+      dotColor?: string;
+      selected?: boolean;
+      selectedColor?: string;
+      customStyles?: {
+        container?: { backgroundColor: string; borderRadius: number };
+        text?: { color: string; fontWeight: string };
+      };
+    }> = {};
 
     dailyStats.forEach(day => {
       const duration = Math.floor((day.total_duration_seconds || 0) / 60); // minutes
